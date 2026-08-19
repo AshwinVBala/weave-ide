@@ -1,0 +1,47 @@
+store TodoStore {
+    var itemsCount: Int = 0;
+
+    fn addTodo(title: String) {
+        itemsCount = itemsCount + 1;
+    }
+}
+
+server {
+    fn fetchTodos() -> String {
+        return "ok";
+    }
+
+    fn saveTodo(title: String) -> Bool {
+        return true;
+    }
+}
+
+style TodoHeader {
+    fontSize: 24;
+    fontWeight: "bold";
+    color: "#1e293b";
+}
+
+style ContainerStyle {
+    padding: 24;
+    gap: 16;
+}
+
+component TodoApp() {
+    var newTodoText: String = "";
+
+    VStack(style: ContainerStyle) {
+        Text("My Todo List", style: TodoHeader);
+
+        HStack {
+            TextField(value: newTodoText, placeholder: "Add a new task...");
+            Button("Add", onClick: () -> {
+                newTodoText = "";
+            });
+        }
+
+        VStack {
+            Text("No tasks yet!");
+        }
+    }
+}

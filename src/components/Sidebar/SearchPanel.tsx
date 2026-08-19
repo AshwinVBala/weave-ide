@@ -11,10 +11,14 @@ interface SearchResult {
 }
 
 interface SearchPanelProps {
-  onFileSelect: (path: string) => void;
+  onFileSelect: (path: string, line?: number, column?: number) => void;
+  workspacePath?: string;
 }
 
-export const SearchPanel: React.FC<SearchPanelProps> = ({ onFileSelect }) => {
+export const SearchPanel: React.FC<SearchPanelProps> = ({
+  onFileSelect,
+  workspacePath = '/workspace',
+}) => {
   const [query, setQuery] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -63,7 +67,7 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onFileSelect }) => {
         }
       };
 
-      await scanDir('/workspace');
+      await scanDir(workspacePath);
       setResults(searchResults);
     } finally {
       setIsSearching(false);
@@ -125,12 +129,16 @@ export const SearchPanel: React.FC<SearchPanelProps> = ({ onFileSelect }) => {
           results.map((res: SearchResult, idx: number) => (
             <div
               key={`${res.filePath}-${res.line}-${idx}`}
-              onClick={() => onFileSelect(res.filePath)}
+              onClick={() => onFileSelect(res.filePath, res.line, res.matchIndex + 1)}
               className="p-2 bg-editor-panel/40 hover:bg-editor-hover rounded cursor-pointer text-xs space-y-1 transition-colors border border-transparent hover:border-editor-border"
             >
               <div className="flex items-center space-x-1.5 text-editor-muted text-[11px]">
                 <FileIcon name={res.filePath.split('/').pop()} className="w-3.5 h-3.5" />
-                <span className="truncate font-mono text-editor-text">{res.filePath.replace('/workspace/', '')}</span>
+                <span className="truncate font-mono text-editor-text">
+                  {res.filePath.startsWith(`${workspacePath}/`)
+                    ? res.filePath.slice(workspacePath.length + 1)
+                    : res.filePath}
+                </span>
                 <span>:</span>
                 <span className="text-amber-400 font-mono font-semibold">{res.line}</span>
               </div>

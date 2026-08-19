@@ -5,6 +5,7 @@ import { WeaveCompilerService } from '../services/compilerService';
 import { MonacoEditor } from '../components/Editor/MonacoEditor';
 import { DEFAULT_SETTINGS } from '../App';
 import { EditorTab } from '../types';
+import { inMemoryFs } from '../services/fsService';
 
 describe('WASM Language Client & Web Worker Bridge', () => {
   it('initializes WASM bridge and performs diagnostics check', async () => {
@@ -35,13 +36,14 @@ describe('WASM Language Client & Web Worker Bridge', () => {
     expect(ast.syntax_tree).toBeDefined();
   });
 
-  it('executes Weave code in-memory via WASM Loom VM', async () => {
+  it('reports that browser WASM cannot execute programs instead of simulating a VM', async () => {
     const code = 'fn main() { io::println("Hello Weave WASM!"); }';
     const result = await wasmCompilerBridge.executeCode(code, 'main.wv');
     expect(result).toBeDefined();
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.mode).toBe('wasm');
     expect(result.output.length).toBeGreaterThan(0);
+    expect(result.output[0]).toContain('requires the native Weave CLI');
   });
 });
 
@@ -54,8 +56,9 @@ describe('Fallback Service Router (Tauri IPC / In-Memory WASM)', () => {
     // Run file through the router
     const result = await WeaveCompilerService.runFile('/workspace/examples/counter.wv');
     expect(result).toBeDefined();
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.output.length).toBeGreaterThan(0);
+    expect(result.output.some((line) => line.includes('requires the native Weave CLI'))).toBe(true);
     expect(['native', 'wasm']).toContain(result.engine);
   });
 
@@ -68,9 +71,30 @@ describe('Fallback Service Router (Tauri IPC / In-Memory WASM)', () => {
 
   it('runs tests using the fallback router', async () => {
     const testResult = await WeaveCompilerService.testProject();
-    expect(testResult.success).toBe(true);
+    expect(testResult.success).toBe(false);
     expect(testResult.output.length).toBeGreaterThan(0);
+    expect(testResult.output.some((line) => line.includes('cannot execute @test functions yet'))).toBe(true);
     expect(['native', 'wasm']).toContain(testResult.engine);
+  });
+
+  it('fails a workspace build when a real project file has compiler errors', async () => {
+    await inMemoryFs.writeFile('/broken-project/main.wv', 'component Broken {');
+    const diagnosticsSpy = vi.spyOn(wasmCompilerBridge, 'checkDiagnostics').mockResolvedValueOnce([
+      {
+        id: 'broken-project-error',
+        filePath: '/broken-project/main.wv',
+        line: 1,
+        column: 18,
+        message: 'Expected closing brace',
+        severity: 'error',
+      },
+    ]);
+
+    const result = await WeaveCompilerService.buildProject('/broken-project');
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.output.some((line) => line.includes('Build failed with 1 error'))).toBe(true);
+    diagnosticsSpy.mockRestore();
   });
 });
 

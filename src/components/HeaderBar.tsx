@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import {
   Play,
   Hammer,
@@ -10,17 +10,11 @@ import {
   Check,
   Sparkles,
   Command,
-  ChevronDown,
-  Cpu,
+  Search,
   Bot,
 } from 'lucide-react';
 import { WeaveLogo } from './Branding/WeaveLogo';
-import { isTauriEnvironment } from '../services/fsService';
-import {
-  AIService,
-  AIModel,
-  AVAILABLE_MODELS,
-} from '../services/aiService';
+import { ModelSelectorDropdown } from './AI/ModelSelectorDropdown';
 
 export interface HeaderBarProps {
   projectName: string;
@@ -39,7 +33,10 @@ export interface HeaderBarProps {
   onTogglePreview?: () => void;
   onOpenFolder?: () => void;
   onOpenCommandBar?: () => void;
+  onOpenQuickSwitcher?: () => void;
   onToggleFileTreeOverlay?: () => void;
+  isAgentPanelOpen?: boolean;
+  onToggleAgentPanel?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -59,66 +56,57 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onTogglePreview,
   onOpenFolder,
   onOpenCommandBar,
+  onOpenQuickSwitcher,
+  isAgentPanelOpen,
+  onToggleAgentPanel,
 }) => {
-  const isTauri = isTauriEnvironment();
-  const [activeModel, setActiveModel] = useState<AIModel>(AIService.getActiveModel());
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const unsubscribe = AIService.subscribe(() => {
-      setActiveModel(AIService.getActiveModel());
-    });
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsModelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   return (
     <header
       role="banner"
       aria-label="Application Header"
-      className="h-11 bg-studio-glass backdrop-blur-xl border-b border-studio-border flex items-center justify-between px-3.5 select-none z-30 shrink-0 text-neutral-200"
+      className="workbench-header h-12 flex items-center justify-between gap-2 overflow-hidden px-3 select-none z-30 shrink-0 text-[#F9FAFB]"
     >
-      {/* Left side: Logo & Title */}
-      <div className="flex items-center space-x-3">
-        {/* Brand Logo with Interwoven Loop W */}
-        <div className="flex items-center space-x-2 text-editor-text font-semibold text-xs">
-          <WeaveLogo size={24} glow={true} animated={false} />
-          <span className="font-bold text-white tracking-wide">Weave IDE</span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hidden sm:inline">
-            STUDIO
-          </span>
+      {/* Left side: Logo & Clean File Reference */}
+      <div className="flex flex-1 min-w-0 items-center space-x-3">
+        <div className="header-brand flex shrink-0 items-center space-x-2 text-xs">
+          <WeaveLogo size={20} glow={false} animated={false} />
+          <span className="header-brand-title font-semibold text-[#F9FAFB] tracking-tight">Weave IDE</span>
         </div>
 
-        <div className="h-4 w-px bg-neutral-800 hidden sm:block" />
+        <div className="header-divider h-3.5 w-px shrink-0 bg-white/[0.06]" />
 
-        {/* Workspace info & File title */}
-        <div className="flex items-center space-x-1.5 text-xs text-neutral-400">
-          <span className="text-neutral-200 font-medium">{projectName}</span>
+        {/* Clean Single Workspace / Active File Path */}
+        <div className="header-workspace-path flex min-w-0 items-center space-x-1.5 overflow-hidden text-xs text-[#6B7280]">
+          <span className="truncate">{projectName}</span>
           {activeFileName && (
             <>
-              <span className="text-neutral-600">/</span>
-              <span className="text-cyan-400 font-mono">{activeFileName}</span>
+              <span className="text-white/[0.15]">/</span>
+              <span className="truncate text-[#F9FAFB] font-mono">{activeFileName}</span>
               {hasUnsavedChanges && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" title="Unsaved changes" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#FF9D00]" title="Unsaved changes" />
               )}
             </>
           )}
         </div>
 
+        {/* Quick Switcher Trigger (Cmd+P) */}
+        {onOpenQuickSwitcher && (
+          <button
+            onClick={onOpenQuickSwitcher}
+            data-testid="header-quick-switcher-btn"
+            className="header-search hidden 2xl:flex shrink-0 items-center gap-2 min-w-[180px] px-2.5 py-1 rounded-md bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.06] text-[#747987] hover:text-[#F9FAFB] text-xs transition-colors"
+            title="Quick Switcher (Cmd+P)"
+          >
+            <Search className="w-3 h-3 text-[#6B7280]" />
+            <span className="text-[11px]">Search</span>
+            <span className="text-[10px] font-mono text-[#6B7280] bg-white/[0.04] px-1 rounded">⌘P</span>
+          </button>
+        )}
+
         <button
           onClick={onNewFile}
-          className="p-1 text-neutral-400 hover:text-amber-400 rounded-lg transition-colors hidden md:block hover:bg-neutral-800/60"
-          title="New Weave File (Ctrl+N)"
+          className="p-1 text-[#6B7280] hover:text-[#F9FAFB] rounded-md transition-colors hover:bg-white/[0.04]"
+          title="New Weave File"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -126,7 +114,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         {onOpenFolder && (
           <button
             onClick={onOpenFolder}
-            className="p-1 text-neutral-400 hover:text-amber-400 rounded-lg transition-colors hidden md:block hover:bg-neutral-800/60"
+            className="p-1 text-[#6B7280] hover:text-[#F9FAFB] rounded-md transition-colors hover:bg-white/[0.04]"
             title="Open Folder"
           >
             <FolderOpen className="w-3.5 h-3.5" />
@@ -134,99 +122,60 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         )}
       </div>
 
-      {/* Middle side: Active Model Selector + Global AI Command Bar Launcher */}
-      <div className="flex items-center space-x-2">
-        {/* Active Model Selector */}
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-            data-testid="header-model-selector-btn"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-neutral-900/80 hover:bg-neutral-800 border border-neutral-700/80 text-xs text-neutral-200 transition-colors shadow-sm"
-            title="Switch Active AI Reasoning Model"
-          >
-            <Bot className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="font-semibold text-xs text-white max-w-[130px] truncate">{activeModel.name}</span>
-            <ChevronDown className={`w-3 h-3 text-neutral-400 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
-          </button>
-
-          {/* Model Dropdown Menu */}
-          {isModelDropdownOpen && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 w-72 bg-[#121624] border border-neutral-700 rounded-xl shadow-2xl p-1.5 z-50 flex flex-col gap-1 backdrop-blur-2xl">
-              <div className="px-2.5 py-1 text-[10px] uppercase font-bold tracking-wider text-neutral-400 border-b border-neutral-800 flex items-center justify-between">
-                <span>Reasoning Model</span>
-                <span className="text-cyan-400 font-mono">Weave Core</span>
-              </div>
-              {AVAILABLE_MODELS.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => {
-                    AIService.setActiveModel(model.id);
-                    setIsModelDropdownOpen(false);
-                  }}
-                  className={`flex flex-col items-start p-2 rounded-lg text-left transition-colors ${
-                    activeModel.id === model.id
-                      ? 'bg-cyan-500/15 border border-cyan-500/30 text-white'
-                      : 'hover:bg-neutral-800/80 text-neutral-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-semibold">{model.name}</span>
-                    <span className="text-[9px] px-1 rounded font-mono bg-neutral-800 text-neutral-400">
-                      {model.provider}
-                    </span>
-                  </div>
-                  <span className="text-[10.5px] text-neutral-400 mt-0.5">{model.badge}</span>
-                </button>
-              ))}
-            </div>
-          )}
+      {/* Middle side: Model Selector & Prompt Launcher */}
+      <div className="header-primary-actions flex shrink-0 items-center space-x-2">
+        {/* Model Selector Dropdown */}
+        <div className="header-model-selector min-w-0">
+          <ModelSelectorDropdown align="center" placement="below" testId="header-model-selector-btn" />
         </div>
 
-        {/* Global AI Command Bar Trigger (Cmd/Ctrl + K) */}
+        {/* Prompt Studio Launcher (Cmd+K) */}
         {onOpenCommandBar && (
           <button
             onClick={onOpenCommandBar}
             data-testid="btn-open-command-bar"
-            className="flex items-center gap-2 px-3 py-1 rounded-lg bg-gradient-to-r from-neutral-900 via-neutral-900 to-neutral-900/90 hover:border-cyan-500/50 border border-neutral-700/80 text-neutral-300 hover:text-white transition-all text-xs shadow-sm group"
-            title="Global AI Command Bar (Cmd+K / Ctrl+K)"
+            className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] text-[#6B7280] hover:text-[#F9FAFB] transition-all text-xs"
+            title="Prompt Studio (Cmd+K)"
           >
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400 group-hover:animate-pulse" />
-            <span className="text-neutral-400 group-hover:text-neutral-200">Prompt Studio</span>
-            <div className="flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 border border-neutral-700 text-neutral-400">
+            <Sparkles className="w-3 h-3 text-[#FF9D00]" />
+            <span className="text-xs">Prompt</span>
+            <div className="flex items-center gap-0.5 text-[10px] font-mono text-[#6B7280] bg-white/[0.04] px-1 py-0.2 rounded border border-white/[0.05]">
               <Command className="w-2.5 h-2.5" />
               <span>K</span>
             </div>
           </button>
         )}
 
-        <div className="h-4 w-px bg-neutral-800 hidden md:block" />
+        <div className="h-3.5 w-px bg-white/[0.06] hidden md:block" />
 
-        {/* Run & Build Buttons */}
+        {/* Primary CTA: Run Button with Single Warm Accent (#FF9D00) */}
         <button
           onClick={onRun}
-          className="flex items-center space-x-1.5 px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-medium transition-colors shadow-sm"
+          className="flex items-center space-x-1.5 px-3 py-1 bg-[#FF9D00] hover:bg-[#ffaa1a] text-black font-semibold rounded-lg text-xs transition-all shadow-glow-amber active:scale-95"
           title="Run Active File (F5)"
         >
-          <Play className="w-3.5 h-3.5 fill-current" />
-          <span className="hidden md:inline">Run</span>
+          <Play className="w-3 h-3 fill-current" />
+          <span>Run</span>
         </button>
 
+        {/* Build CTA: Minimal Stealth Button */}
         <button
           onClick={onBuild}
-          className="flex items-center space-x-1.5 px-2.5 py-1 bg-neutral-900/80 hover:bg-neutral-800 text-neutral-200 border border-neutral-700/80 rounded-lg text-xs font-medium transition-colors"
+          className="flex items-center space-x-1 px-2.5 py-1 bg-white/[0.03] hover:bg-white/[0.06] text-[#6B7280] hover:text-[#F9FAFB] border border-white/[0.05] rounded-lg text-xs transition-colors"
           title="Build Release Target (Ctrl+Shift+B)"
         >
-          <Hammer className="w-3.5 h-3.5 text-amber-400" />
-          <span className="hidden md:inline">Build</span>
+          <Hammer className="w-3 h-3" />
+          <span className="hidden sm:inline">Build</span>
         </button>
 
+        {/* Save CTA */}
         <button
           onClick={onSave}
           disabled={!hasUnsavedChanges || isSaving}
-          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+          className={`flex items-center space-x-1 px-2 py-1 rounded-lg text-xs transition-colors ${
             hasUnsavedChanges
-              ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
-              : 'bg-neutral-900/40 border-neutral-800 text-neutral-500 opacity-60 cursor-default'
+              ? 'bg-white/[0.06] text-[#F9FAFB] border border-white/[0.1] hover:bg-white/[0.1]'
+              : 'text-[#6B7280] opacity-40 cursor-default'
           }`}
           title="Save File (Ctrl+S)"
         >
@@ -235,80 +184,65 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           ) : (
             <Save className="w-3.5 h-3.5" />
           )}
-          <span className="hidden lg:inline">{isSaving ? 'Saved' : 'Save'}</span>
         </button>
       </div>
 
-      {/* Right side: Status Pills & Overlay Toggles */}
-      <div className="flex items-center space-x-2">
-        {/* Status Pill 1: WASM Worker */}
-        <div
-          className="flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 font-mono hidden xl:flex"
-          title="WASM Web Worker Language Client Active"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span>WASM Worker</span>
-        </div>
-
-        {/* Status Pill 2: Compiler Ready */}
-        <div
-          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 font-mono hidden lg:flex"
-          title={isTauri ? 'Native Weave CLI Ready' : 'WASM In-Memory Compiler Ready'}
-        >
-          <Cpu className="w-3 h-3 text-cyan-400" />
-          <span>Compiler Ready</span>
-        </div>
-
-        {/* Status Pill 3: AI Active */}
-        <div
-          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/25 font-mono hidden sm:flex"
-          title="Weave AI Agent Online"
-        >
-          <Sparkles className="w-3 h-3 text-amber-400" />
-          <span>AI Active</span>
-        </div>
-
-        <div className="h-4 w-px bg-neutral-800" />
+      {/* Right side: Clean Floating Panel Toggles */}
+      <div className="flex flex-1 min-w-0 items-center justify-end space-x-1.5">
+        {onToggleAgentPanel && (
+          <button
+            onClick={onToggleAgentPanel}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${
+              isAgentPanelOpen
+                ? 'bg-[#f0a35b]/[0.12] text-[#f5b97e] border border-[#f0a35b]/20'
+                : 'text-[#747987] hover:text-[#F9FAFB] hover:bg-white/[0.04]'
+            }`}
+            title="Toggle Agent Panel (Cmd+L)"
+          >
+            <Bot className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Agent</span>
+          </button>
+        )}
 
         {/* Toggle Live Preview Canvas */}
         {onTogglePreview && (
           <button
             onClick={onTogglePreview}
             data-testid="btn-toggle-live-preview"
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs transition-colors ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${
               isPreviewOpen
-                ? 'text-cyan-300 bg-cyan-500/20 border border-cyan-500/40 font-semibold shadow-glow-cyan'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800 border border-transparent'
+                ? 'bg-white/[0.08] text-[#F9FAFB] font-medium border border-white/[0.08]'
+                : 'text-[#6B7280] hover:text-[#F9FAFB] hover:bg-white/[0.04]'
             }`}
-            title="Toggle Weave Live Preview Canvas"
+            title="Toggle Live Preview"
           >
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Preview</span>
+            <Sparkles className="w-3 h-3 text-[#FF9D00]" />
+            <span className="hidden sm:inline text-xs">Preview</span>
           </button>
         )}
 
-        {/* Toggle Sidebar Panel */}
+        {/* Toggle Sidebar */}
         <button
           onClick={onToggleSidebar}
           className={`p-1.5 rounded-lg transition-colors ${
             isSidebarOpen
-              ? 'text-cyan-400 bg-neutral-800/80 border border-neutral-700'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+              ? 'text-[#F9FAFB] bg-white/[0.06]'
+              : 'text-[#6B7280] hover:text-[#F9FAFB] hover:bg-white/[0.04]'
           }`}
           title="Toggle Primary Sidebar"
         >
           <PanelLeft className="w-4 h-4" />
         </button>
 
-        {/* Toggle Bottom Drawer */}
+        {/* Toggle Collapsible Terminal Overlay */}
         <button
           onClick={onToggleBottomPanel}
           className={`p-1.5 rounded-lg transition-colors ${
             isBottomPanelOpen
-              ? 'text-cyan-400 bg-neutral-800/80 border border-neutral-700'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+              ? 'text-[#F9FAFB] bg-white/[0.06]'
+              : 'text-[#6B7280] hover:text-[#F9FAFB] hover:bg-white/[0.04]'
           }`}
-          title="Toggle Bottom Terminal Panel"
+          title="Toggle Terminal Panel"
         >
           <PanelBottom className="w-4 h-4" />
         </button>

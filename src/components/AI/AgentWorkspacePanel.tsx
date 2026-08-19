@@ -8,19 +8,16 @@ import {
   FileCode,
   Check,
   Copy,
-  ChevronDown,
-  Cpu,
   X,
   ArrowUpRight,
   GitBranch,
 } from 'lucide-react';
 import {
   AIService,
-  AIModel,
-  AVAILABLE_MODELS,
   AIMessage,
   ContextFileChip,
 } from '../../services/aiService';
+import { ModelSelectorDropdown } from './ModelSelectorDropdown';
 
 interface AgentWorkspacePanelProps {
   currentCode: string;
@@ -36,36 +33,21 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
   onOpenFile,
 }) => {
   const [messages, setMessages] = useState<AIMessage[]>(AIService.getMessages());
-  const [activeModel, setActiveModel] = useState<AIModel>(AIService.getActiveModel());
   const [contextFiles, setContextFiles] = useState<ContextFileChip[]>(AIService.getContextFiles());
   const [inputPrompt, setInputPrompt] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [copiedPatchId, setCopiedPatchId] = useState<string | null>(null);
   const [appliedPatchId, setAppliedPatchId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Sync state with AIService subscriptions
   useEffect(() => {
     const unsubscribe = AIService.subscribe(() => {
       setMessages(AIService.getMessages());
-      setActiveModel(AIService.getActiveModel());
       setContextFiles(AIService.getContextFiles());
     });
     return unsubscribe;
-  }, []);
-
-  // Close dropdown on click outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsModelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // Auto-scroll thought stream
@@ -75,16 +57,7 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
 
   // Handle active file context chip automatically
   useEffect(() => {
-    if (activeFilePath) {
-      const fileName = activeFilePath.split('/').pop() || 'file.wv';
-      AIService.addContextFile({
-        id: activeFilePath,
-        path: activeFilePath,
-        name: fileName,
-        kind: fileName.includes('Theme') ? 'theme' : fileName.includes('store') ? 'store' : 'component',
-        isActive: true,
-      });
-    }
+    AIService.setActiveContextFile(activeFilePath);
   }, [activeFilePath]);
 
   const handleSendPrompt = async (promptToSend?: string) => {
@@ -115,98 +88,41 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
     setTimeout(() => setCopiedPatchId(null), 2000);
   };
 
-  const quickPrompts = [
-    { label: '⚡ Add API Resource', prompt: 'Add an asynchronous resource fetch for /api/users with loading states' },
-    { label: '🎨 Create Studio Theme', prompt: 'Create a dark theme with Cyan and Amber accents and apply to layout' },
-    { label: '🔄 Add Reset Button', prompt: 'Add a Reset button with count = 0 reactive handler' },
-    { label: '📋 Scaffold Todo App', prompt: 'Scaffold a complete interactive TodoApp with reactive state' },
-  ];
-
   return (
     <div
       data-testid="agent-workspace-panel"
-      className="flex flex-col h-full w-full bg-studio-card backdrop-blur-xl border-r border-studio-border text-neutral-200 overflow-hidden font-sans select-none"
+      className="flex flex-col h-full w-full bg-[#08090c] text-[#F9FAFB] overflow-hidden font-sans select-none"
     >
-      {/* 1. Header: Agent identity and Model Swapper */}
-      <div className="p-3 border-b border-studio-border flex flex-col gap-2.5 bg-studio-glass">
+      {/* 1. Header: Ultra-minimalist Stealth Header */}
+      <div className="px-3 py-2.5 border-b border-white/[0.05] flex flex-col gap-2 bg-[#08090c]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-amber-500 to-cyan-400 flex items-center justify-center text-white shadow-glow-cyan">
-                <Bot className="w-3.5 h-3.5 text-black" />
-              </div>
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0a0c10]" />
+            <div className="w-5 h-5 rounded-md bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-[#F9FAFB]">
+              <Sparkles className="w-3 h-3 text-[#FF9D00]" />
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-white tracking-wide">Weave Agent</span>
-                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  ONLINE
-                </span>
-              </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-[#F9FAFB]">Weave Agent</span>
             </div>
           </div>
 
-          {/* Model Selector Dropdown Trigger */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-              data-testid="agent-model-selector-btn"
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-neutral-900/80 hover:bg-neutral-800 border border-neutral-700/60 text-xs text-neutral-200 transition-colors shadow-sm"
-              title="Select Active AI Reasoning Model"
-            >
-              <Cpu className="w-3 h-3 text-cyan-400" />
-              <span className="font-medium text-[11px] max-w-[110px] truncate">{activeModel.name}</span>
-              <ChevronDown className={`w-3 h-3 text-neutral-400 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {/* Model Dropdown Menu */}
-            {isModelDropdownOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-64 bg-[#141824] border border-neutral-700 rounded-lg shadow-2xl p-1.5 z-50 flex flex-col gap-1 backdrop-blur-2xl">
-                <div className="px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-neutral-400 border-b border-neutral-800">
-                  Select Reasoning Model
-                </div>
-                {AVAILABLE_MODELS.map((model) => (
-                  <button
-                    key={model.id}
-                    onClick={() => {
-                      AIService.setActiveModel(model.id);
-                      setIsModelDropdownOpen(false);
-                    }}
-                    className={`flex flex-col items-start p-2 rounded text-left transition-colors ${
-                      activeModel.id === model.id
-                        ? 'bg-cyan-500/15 border border-cyan-500/30 text-white'
-                        : 'hover:bg-neutral-800/80 text-neutral-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xs font-semibold">{model.name}</span>
-                      <span className="text-[9px] px-1 rounded font-mono bg-neutral-800 text-neutral-400">
-                        {model.contextWindow}
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-neutral-400 line-clamp-1 mt-0.5">{model.badge}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Dynamic Model Selector Dropdown */}
+          <ModelSelectorDropdown align="right" testId="agent-model-selector-btn" />
         </div>
 
         {/* 2. Context File Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pt-1">
-          <span className="text-[10px] text-neutral-400 font-mono flex items-center gap-1 shrink-0">
-            <GitBranch className="w-2.5 h-2.5 text-amber-400" />
+        <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+          <span className="text-[10px] text-[#6B7280] font-mono flex items-center gap-1 shrink-0">
+            <GitBranch className="w-2.5 h-2.5 text-[#6B7280]" />
             Context:
           </span>
           {contextFiles.map((file) => (
             <div
               key={file.id}
               onClick={() => onOpenFile(file.path)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-900/80 border border-neutral-700/80 hover:border-cyan-500/50 text-[10px] text-neutral-300 cursor-pointer transition-colors group shrink-0"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.03] border border-white/[0.05] hover:border-white/[0.15] text-[10px] text-[#6B7280] hover:text-[#F9FAFB] cursor-pointer transition-colors group shrink-0"
               title={`File in AI Context: ${file.path}`}
             >
-              <FileCode className="w-2.5 h-2.5 text-cyan-400" />
+              <FileCode className="w-2.5 h-2.5 text-[#6B7280] group-hover:text-[#F9FAFB]" />
               <span className="font-mono">{file.name}</span>
               <button
                 onClick={(e) => {
@@ -221,57 +137,54 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
             </div>
           ))}
           {contextFiles.length === 0 && (
-            <span className="text-[10px] text-neutral-500 italic">No files in active context</span>
+            <span className="text-[10px] text-[#6B7280] italic">No files in active context</span>
           )}
         </div>
       </div>
 
-      {/* 3. Thought Stream & Conversation History */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+      {/* 3. Thought Stream & Flat Borderless Conversation Stream */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-4 custom-scrollbar">
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex flex-col gap-1.5 ${
-              msg.role === 'user' ? 'items-end' : 'items-start'
-            }`}
-          >
+          <div key={msg.id} className="flex flex-col gap-1 w-full items-start">
             {/* Sender identity */}
-            <div className="flex items-center gap-1 text-[10px] text-neutral-400 font-mono px-1">
+            <div className="flex items-center gap-1 text-[10px] text-[#6B7280] font-mono">
               {msg.role === 'user' ? (
                 <>
+                  <User className="w-2.5 h-2.5 text-[#6B7280]" />
                   <span>You</span>
-                  <User className="w-3 h-3 text-amber-400" />
                 </>
               ) : (
                 <>
-                  <Bot className="w-3 h-3 text-cyan-400" />
-                  <span className="font-semibold text-cyan-300">Weave Agent</span>
-                  {msg.model && <span className="text-neutral-500">• {msg.model}</span>}
+                  <Bot className="w-2.5 h-2.5 text-[#FF9D00]" />
+                  <span className="font-medium text-[#F9FAFB]">Weave Agent</span>
+                  {msg.model && <span className="text-[#6B7280]">• {msg.model}</span>}
                 </>
               )}
             </div>
 
-            {/* Bubble Container */}
-            <div
-              className={`p-3 rounded-xl text-xs max-w-[95%] leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/30 text-white'
-                  : 'bg-[#121622] border border-neutral-700/60 text-neutral-200 shadow-glass'
-              }`}
-            >
+            {/* Flat Borderless Stream Content */}
+            <div className="w-full select-text">
               {/* Message text */}
               {msg.content && (
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                <div
+                  className={`text-xs leading-relaxed whitespace-pre-wrap ${
+                    msg.role === 'user'
+                      ? 'text-[#F9FAFB] font-normal'
+                      : 'text-[#9CA3AF]'
+                  }`}
+                >
+                  {msg.content}
+                </div>
               )}
 
               {/* Thought Stream / Reasoning steps */}
               {msg.reasoningSteps && msg.reasoningSteps.length > 0 && (
-                <div className="mt-2.5 pt-2 border-t border-neutral-800 flex flex-col gap-1 bg-black/20 p-2 rounded-lg">
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 font-semibold">
-                    <Sparkles className="w-3 h-3 text-cyan-400 animate-pulse" />
-                    <span>Thought Stream & AST Analysis:</span>
+                <div className="mt-2 flex flex-col gap-1">
+                  <div className="flex items-center gap-1 text-[10px] font-mono text-[#6B7280] font-medium">
+                    <Sparkles className="w-2.5 h-2.5 text-[#FF9D00]" />
+                    <span>Thought Stream:</span>
                   </div>
-                  <ul className="space-y-0.5 text-[11px] text-neutral-400 font-mono pl-3 list-disc">
+                  <ul className="space-y-0.5 text-[11px] text-[#6B7280] font-mono pl-3 list-disc">
                     {msg.reasoningSteps.map((step, idx) => (
                       <li key={idx} className="leading-snug">{step}</li>
                     ))}
@@ -285,9 +198,9 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
                   {msg.toolCalls.map((tool, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/40 border border-cyan-800/40 text-[10px] text-cyan-300 font-mono"
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.05] text-[10px] text-[#6B7280] font-mono"
                     >
-                      <Wrench className="w-2.5 h-2.5 text-cyan-400" />
+                      <Wrench className="w-2.5 h-2.5 text-[#6B7280]" />
                       <span>{tool.tool}</span>
                       <span className="text-emerald-400">✓</span>
                     </div>
@@ -295,20 +208,20 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
                 </div>
               )}
 
-              {/* AST Diff Code Patch */}
+              {/* AST Diff Code Patch in soft inline block */}
               {msg.patch && (
-                <div className="mt-3 border border-neutral-700 rounded-lg overflow-hidden bg-[#0c0e14]">
-                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-neutral-900 border-b border-neutral-800">
+                <div className="mt-2.5 border border-white/[0.05] rounded-lg overflow-hidden bg-white/[0.02]">
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-white/[0.02] border-b border-white/[0.04]">
                     <div className="flex items-center gap-1.5">
-                      <FileCode className="w-3 h-3 text-amber-400" />
-                      <span className="text-[11px] font-mono font-medium text-neutral-300">
+                      <FileCode className="w-3 h-3 text-[#6B7280]" />
+                      <span className="text-[11px] font-mono font-medium text-[#F9FAFB]">
                         {msg.patch.filePath}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleCopyCode(msg.id, msg.patch!.modifiedCode)}
-                        className="px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-[10px] text-neutral-300 transition-colors flex items-center gap-1"
+                        className="px-1.5 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-[#6B7280] hover:text-[#F9FAFB] transition-colors flex items-center gap-1"
                         title="Copy Code"
                       >
                         {copiedPatchId === msg.id ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
@@ -316,26 +229,26 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
                       </button>
                       <button
                         onClick={() => handleApplyPatch(msg.id, msg.patch!.modifiedCode)}
-                        className="px-2 py-0.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-medium transition-colors flex items-center gap-1 shadow-sm"
+                        className="px-2 py-0.5 rounded bg-[#FF9D00] hover:bg-[#ffaa1a] text-black font-semibold text-[10px] transition-colors flex items-center gap-1"
                         title="Apply Code Patch to Monaco Editor"
                       >
-                        {appliedPatchId === msg.id ? <Check className="w-2.5 h-2.5 text-white" /> : <ArrowUpRight className="w-2.5 h-2.5" />}
+                        {appliedPatchId === msg.id ? <Check className="w-2.5 h-2.5 text-black" /> : <ArrowUpRight className="w-2.5 h-2.5" />}
                         <span>{appliedPatchId === msg.id ? 'Applied!' : 'Apply Patch'}</span>
                       </button>
                     </div>
                   </div>
 
                   {/* Diff Snippet */}
-                  <div className="p-2 max-h-44 overflow-y-auto font-mono text-[10.5px] leading-relaxed custom-scrollbar">
+                  <div className="p-2 max-h-48 overflow-y-auto font-mono text-[10.5px] leading-relaxed custom-scrollbar">
                     {msg.patch.diffLines?.map((line, idx) => (
                       <div
                         key={idx}
                         className={`px-1 rounded-sm ${
                           line.type === 'add'
-                            ? 'bg-emerald-950/40 text-emerald-300'
+                            ? 'bg-emerald-500/10 text-emerald-300'
                             : line.type === 'del'
-                            ? 'bg-rose-950/40 text-rose-300 line-through opacity-70'
-                            : 'text-neutral-400'
+                            ? 'bg-rose-500/10 text-rose-300 line-through opacity-60'
+                            : 'text-[#6B7280]'
                         }`}
                       >
                         <span className="select-none opacity-40 inline-block w-4">
@@ -352,8 +265,8 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
         ))}
 
         {isProcessing && (
-          <div className="flex items-center gap-2 text-xs text-cyan-400 p-2 font-mono bg-cyan-950/20 border border-cyan-800/30 rounded-lg animate-pulse">
-            <Sparkles className="w-4 h-4 animate-spin text-cyan-400" />
+          <div className="flex items-center gap-2 text-xs text-[#FF9D00] p-2 font-mono bg-white/[0.02] border border-white/[0.04] rounded-lg animate-pulse">
+            <Sparkles className="w-3.5 h-3.5 animate-spin text-[#FF9D00]" />
             <span>Agent reasoning and generating AST diff...</span>
           </div>
         )}
@@ -361,27 +274,14 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 4. Quick Directive Suggestions */}
-      <div className="px-3 py-1.5 border-t border-studio-border bg-studio-glass/60 flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
-        {quickPrompts.map((qp, idx) => (
-          <button
-            key={idx}
-            onClick={() => handleSendPrompt(qp.prompt)}
-            className="px-2 py-1 rounded-md bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/60 text-[10.5px] text-neutral-300 hover:text-white shrink-0 transition-colors"
-          >
-            {qp.label}
-          </button>
-        ))}
-      </div>
-
-      {/* 5. Prompt Input Box */}
-      <div className="p-2.5 border-t border-studio-border bg-studio-glass">
+      {/* 4. Single Clean Borderless Prompt Textarea (Destroyed Legacy Pills) */}
+      <div className="p-3 border-t border-white/[0.05] bg-[#08090c]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSendPrompt();
           }}
-          className="relative flex items-end bg-[#0f121a] rounded-xl border border-neutral-700 focus-within:border-cyan-500/80 transition-colors p-1.5"
+          className="relative flex items-end bg-transparent"
         >
           <textarea
             value={inputPrompt}
@@ -392,27 +292,27 @@ export const AgentWorkspacePanel: React.FC<AgentWorkspacePanelProps> = ({
                 handleSendPrompt();
               }
             }}
-            placeholder="Instruct Weave Agent (e.g. 'Add theme block with cyan accents')..."
+            placeholder="Instruct Weave Agent..."
             rows={2}
-            className="w-full bg-transparent text-xs text-white placeholder-neutral-500 focus:outline-none resize-none px-2 py-1 custom-scrollbar"
+            className="w-full bg-transparent text-xs text-[#F9FAFB] placeholder-[#6B7280] focus:outline-none resize-none pr-8 custom-scrollbar border-none outline-none ring-0 focus:ring-0"
           />
           <button
             type="submit"
             disabled={!inputPrompt.trim() || isProcessing}
             data-testid="btn-agent-send-prompt"
-            className={`p-2 rounded-lg transition-all shrink-0 ${
+            className={`p-1.5 rounded-md transition-all shrink-0 mb-0.5 ${
               inputPrompt.trim() && !isProcessing
-                ? 'bg-gradient-to-r from-amber-500 to-cyan-500 text-black shadow-glow-cyan hover:opacity-90'
-                : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                ? 'bg-[#FF9D00] text-black hover:bg-[#ffaa1a]'
+                : 'text-[#6B7280] hover:text-[#F9FAFB] cursor-not-allowed opacity-40'
             }`}
             title="Send to Weave Agent (Enter)"
           >
             <Send className="w-3.5 h-3.5" />
           </button>
         </form>
-        <div className="flex items-center justify-between text-[10px] text-neutral-500 mt-1 px-1">
-          <span>Press Enter to send, Shift+Enter for newline</span>
-          <span>Cmd+K for Global Command Bar</span>
+        <div className="flex items-center justify-between text-[10px] text-[#6B7280] mt-1">
+          <span>Enter to send • ⇧Enter for newline</span>
+          <span>⌘K for commands</span>
         </div>
       </div>
     </div>

@@ -27,12 +27,16 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, title, onClose, children }
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
       <div
         ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="bg-editor-sidebar border border-editor-border rounded-lg shadow-2xl w-full max-w-md overflow-hidden"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-editor-border bg-editor-panel">
           <h3 className="text-sm font-semibold text-editor-text">{title}</h3>
           <button
             onClick={onClose}
+            aria-label={`Close ${title}`}
             className="text-editor-muted hover:text-editor-text transition-colors p-1 rounded"
           >
             <X className="w-4 h-4" />

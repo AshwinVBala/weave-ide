@@ -1,0 +1,77 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libsecret-1-dev patchelf xdg-utils
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust builds
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+            ./vendor/weave-core -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Validate release metadata
+        run: npm run release:validate
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Build draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Weave IDE v__VERSION__
+          releaseBody: See DISTRIBUTION.md for signing and smoke-test requirements.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

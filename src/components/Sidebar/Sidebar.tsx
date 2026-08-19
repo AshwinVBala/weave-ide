@@ -8,6 +8,7 @@ import { AgentWorkspacePanel } from '../AI/AgentWorkspacePanel';
 
 interface SidebarProps {
   activeView: SidebarView;
+  onViewChange?: (view: SidebarView) => void;
   rootItem: FileItem | null;
   activeFilePath: string | null;
   settings: WorkspaceSettings;
@@ -15,9 +16,11 @@ interface SidebarProps {
   currentCode?: string;
   onApplyPatch?: (newCode: string) => void;
   onFileSelect: (path: string) => void;
+  onNavigateToLocation?: (path: string, line: number, column?: number) => void;
   onCreateFile: (parentPath: string, fileName: string) => Promise<void>;
   onCreateFolder: (parentPath: string, folderName: string) => Promise<void>;
   onDeleteEntry: (path: string) => Promise<void>;
+  onRenameEntry: (path: string, newName: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onUpdateSettings: (newSettings: Partial<WorkspaceSettings>) => void;
   onOpenWorkspaceDialog?: () => void;
@@ -33,15 +36,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentCode = '',
   onApplyPatch = () => {},
   onFileSelect,
+  onNavigateToLocation,
   onCreateFile,
   onCreateFolder,
   onDeleteEntry,
+  onRenameEntry,
   onRefresh,
   onUpdateSettings,
   onOpenWorkspaceDialog,
   isLoading,
 }) => {
-  const [width, setWidth] = useState(300);
+  const [width, setWidth] = useState(248);
   const isDragging = useRef(false);
 
   const startResize = useCallback((e: React.MouseEvent) => {
@@ -52,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       if (!isDragging.current) return;
-      const newWidth = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 220), 700);
+      const newWidth = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 200), 550);
       setWidth(newWidth);
     };
 
@@ -70,15 +75,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div
-      className="relative bg-studio-card backdrop-blur-xl border-r border-studio-border flex flex-col shrink-0 select-none h-full shadow-2xl"
+      className="tool-sidebar relative flex flex-col shrink-0 select-none h-full z-20"
       style={{ width: `${width}px` }}
       data-testid="sidebar-container"
     >
+      <div className="h-9 px-3 flex items-center justify-between border-b border-white/[0.045] shrink-0">
+        <span className="text-[10px] uppercase tracking-[0.14em] font-semibold text-[#8b909c]">
+          {activeView === 'explorer' ? 'Project' : activeView === 'settings' ? 'Settings' : activeView === 'loom' ? 'Loom' : activeView === 'search' ? 'Search' : 'Agent'}
+        </span>
+        <span className="text-[9px] tracking-[0.12em] text-[#3f434c]">WEAVE</span>
+      </div>
+
       <div className="flex-1 overflow-hidden h-full">
         {activeView === 'agent' && (
           <AgentWorkspacePanel
             currentCode={currentCode}
-            activeFilePath={activeFilePath || 'main.wv'}
+            activeFilePath={activeFilePath || ''}
             onApplyPatch={onApplyPatch}
             onOpenFile={onFileSelect}
           />
@@ -92,6 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onCreateFile={onCreateFile}
             onCreateFolder={onCreateFolder}
             onDeleteEntry={onDeleteEntry}
+            onRenameEntry={onRenameEntry}
             onRefresh={onRefresh}
             onOpenWorkspaceDialog={onOpenWorkspaceDialog}
             isLoading={isLoading}
@@ -106,7 +119,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {activeView === 'search' && (
-          <SearchPanel onFileSelect={onFileSelect} />
+          <SearchPanel
+            onFileSelect={(path, line, column) => {
+              if (line && onNavigateToLocation) onNavigateToLocation(path, line, column);
+              else onFileSelect(path);
+            }}
+            workspacePath={rootItem?.path}
+          />
         )}
 
         {activeView === 'loom' && (
@@ -117,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Resize Handle */}
       <div
         onMouseDown={startResize}
-        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-cyan-500/60 transition-colors z-30"
+        className="absolute top-0 right-0 w-px h-full cursor-col-resize hover:bg-[#f0a35b]/50 transition-colors z-30"
         title="Drag to resize sidebar"
       />
     </div>

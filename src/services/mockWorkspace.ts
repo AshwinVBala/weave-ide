@@ -4,76 +4,31 @@ export interface MockFileStructure {
 
 export const INITIAL_MOCK_FILES: MockFileStructure = {
   '/workspace/src/main.wv': `// Weave Main Entry Point
-import std::loom;
-import std::io;
+// Advanced concurrency samples: strand TaskWorker, loom AppLoom
 
-struct LoomConfig {
-    pub max_workers: usize,
-    pub queue_depth: usize,
-}
+component WeaveWorkspace {
+    store build_count = 12;
 
-@derive(Debug, Clone)
-pattern Message {
-    Task(i32, String),
-    Signal(bool),
-    Quit,
-}
+    ui {
+        VStack(gap: 20, padding: 28) {
+            Text("Build beautiful things with Weave");
+            Text("A reactive workspace powered by the Loom runtime.");
 
-/// Concurrent Strand that processes incoming tasks
-strand TaskWorker {
-    id: usize,
-    mailbox: Channel<Message>,
+            HStack(gap: 10) {
+                Button("Run project", onClick: fn() {
+                    build_count += 1;
+                });
+                Button("Reset", onClick: fn() {
+                    build_count = 0;
+                });
+            }
 
-    pub async fn start(mut self) -> Result<(), Error> {
-        io::println(f"[Worker {self.id}] Strand initialized on Loom thread pool");
-
-        while let Some(msg) = self.mailbox.recv().await {
-            match msg {
-                Message::Task(job_id, payload) => {
-                    io::println(f"[Worker {self.id}] Executing job #{job_id}: {payload}");
-                    // Process data through pipeline operator
-                    let result = payload
-                        |> transform_text
-                        ~> self.mailbox;
-                },
-                Message::Signal(flag) => {
-                    io::println(f"[Worker {self.id}] Received signal: {flag}");
-                },
-                Message::Quit => {
-                    io::println(f"[Worker {self.id}] Gracefully shutting down strand");
-                    break;
-                }
+            HStack(gap: 12) {
+                Text("Loom online");
+                Text("Builds: " + build_count);
             }
         }
-        Ok(())
     }
-}
-
-fn transform_text(raw: String) -> String {
-    f"Processed: {raw.to_uppercase()}"
-}
-
-loom AppLoom {
-    threads: 4,
-    strands: [TaskWorker],
-
-    pub async fn orchestrate(mut self) {
-        io::println(">>> Starting Weave Loom Engine v2.4.0 <<<");
-
-        let (tx, rx) = Channel::<Message>::bounded(100);
-        let worker = TaskWorker { id: 1, mailbox: rx };
-        
-        spawn(worker.start());
-
-        tx.send(Message::Task(101, "Process fiber telemetry")).await;
-        tx.send(Message::Task(102, "Calculate strand tensor")).await;
-        tx.send(Message::Quit).await;
-    }
-}
-
-fn main() {
-    let loom = AppLoom::new();
-    loom.run();
 }
 `,
 

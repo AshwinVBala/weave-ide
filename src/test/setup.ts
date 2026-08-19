@@ -29,6 +29,29 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 });
 
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string) => store[key] || null,
+    setItem: (key: string, value: string) => {
+      store[key] = value.toString();
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      store = {};
+    },
+  };
+})();
+
+Object.defineProperty(window, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+});
+(global as any).localStorage = localStorageMock;
+
 // Mock Web Worker for JSDOM environment
 if (typeof window !== 'undefined' && typeof (window as any).Worker === 'undefined') {
   class MockWorker {
@@ -48,17 +71,6 @@ if (typeof window !== 'undefined' && typeof (window as any).Worker === 'undefine
                 type: 'PARSE_SOURCE_RESULT',
                 success: true,
                 ast: { ok: true, error_count: 0, syntax_tree: 'SourceFile', items: [], diagnostics: [] },
-                elapsedMs: 1,
-              },
-            });
-          } else if (data.type === 'EXECUTE_CODE') {
-            this.onmessage({
-              data: {
-                id: data.id,
-                type: 'EXECUTE_CODE_RESULT',
-                success: true,
-                output: ['[WASM VM] Completed execution'],
-                diagnostics: [],
                 elapsedMs: 1,
               },
             });

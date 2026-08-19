@@ -1,16 +1,22 @@
-import { FilePlus, Terminal, Sparkles } from 'lucide-react';
+import { FilePlus, FolderOpen, Terminal, Sparkles } from 'lucide-react';
 import { WeaveLogo } from '../Branding/WeaveLogo';
 
 interface EmptyEditorProps {
   onNewFile: () => void;
+  onOpenFolder: () => void;
   onOpenSample: (path: string) => void;
   onToggleTerminal: () => void;
+  samplePath?: string | null;
+  hasWorkspace?: boolean;
 }
 
 export const EmptyEditor: React.FC<EmptyEditorProps> = ({
   onNewFile,
+  onOpenFolder,
   onOpenSample,
   onToggleTerminal,
+  samplePath,
+  hasWorkspace = true,
 }) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-editor-text select-none bg-editor-bg">
@@ -40,40 +46,59 @@ export const EmptyEditor: React.FC<EmptyEditorProps> = ({
           </div>
 
           <button
-            onClick={onNewFile}
-            className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-editor-hover text-xs text-editor-text transition-colors group"
+            onClick={onOpenFolder}
+            className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/20 text-xs text-editor-text transition-colors group"
           >
-            <FilePlus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+            <FolderOpen className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
             <div className="flex-1">
-              <span className="font-medium">New Weave File</span>
-              <span className="text-[11px] text-editor-muted block">Create an empty .wv module</span>
+              <span className="font-medium">Open Project Folder</span>
+              <span className="text-[11px] text-editor-muted block">Choose a Weave workspace on this computer</span>
             </div>
-            <span className="text-[10px] font-mono text-editor-muted">Ctrl+N</span>
           </button>
 
-          <button
-            onClick={() => onOpenSample('/workspace/src/main.wv')}
-            className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-editor-hover text-xs text-editor-text transition-colors group"
-          >
-            <Sparkles className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-            <div className="flex-1">
-              <span className="font-medium">Open Loom Concurrency Demo</span>
-              <span className="text-[11px] text-editor-muted block">Inspect Strands, Fibers, and Channels</span>
-            </div>
-            <span className="text-[10px] font-mono text-amber-400">main.wv</span>
-          </button>
+          {hasWorkspace && (
+            <button
+              onClick={onNewFile}
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-editor-hover text-xs text-editor-text transition-colors group"
+            >
+              <FilePlus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+              <div className="flex-1">
+                <span className="font-medium">New Weave File</span>
+                <span className="text-[11px] text-editor-muted block">Create an empty .wv module</span>
+              </div>
+              <span className="text-[10px] font-mono text-editor-muted">Ctrl+N</span>
+            </button>
+          )}
 
-          <button
-            onClick={onToggleTerminal}
-            className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-editor-hover text-xs text-editor-text transition-colors group"
-          >
-            <Terminal className="w-4 h-4 text-sky-400 group-hover:scale-110 transition-transform" />
-            <div className="flex-1">
-              <span className="font-medium">Open Integrated Terminal</span>
-              <span className="text-[11px] text-editor-muted block">Execute `weave run`, `weave check`</span>
-            </div>
-            <span className="text-[10px] font-mono text-editor-muted">Ctrl+`</span>
-          </button>
+          {samplePath && (
+            <button
+              onClick={() => onOpenSample(samplePath)}
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-editor-hover text-xs text-editor-text transition-colors group"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+              <div className="flex-1">
+                <span className="font-medium">Open Workspace Entry</span>
+                <span className="text-[11px] text-editor-muted block">Continue with this project</span>
+              </div>
+              <span className="text-[10px] font-mono text-amber-400">
+                {samplePath.split(/[\\/]/).pop()}
+              </span>
+            </button>
+          )}
+
+          {hasWorkspace && (
+            <button
+              onClick={onToggleTerminal}
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-editor-hover text-xs text-editor-text transition-colors group"
+            >
+              <Terminal className="w-4 h-4 text-sky-400 group-hover:scale-110 transition-transform" />
+              <div className="flex-1">
+                <span className="font-medium">Open Integrated Terminal</span>
+                <span className="text-[11px] text-editor-muted block">Execute `weave run`, `weave check`</span>
+              </div>
+              <span className="text-[10px] font-mono text-editor-muted">Ctrl+`</span>
+            </button>
+          )}
         </div>
 
         {/* Keyboard Shortcuts Cheatsheet */}

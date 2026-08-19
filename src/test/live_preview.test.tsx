@@ -1,8 +1,13 @@
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LivePreview, createComponentFromTsx } from '../components/LivePreview';
+import {
+  LivePreview,
+  createComponentFromTsx,
+  createStandaloneHtmlFromTsx,
+} from '../components/LivePreview';
 import { App } from '../App';
 import { WeaveCompilerService } from '../services/compilerService';
+import { fsService } from '../services/fsService';
 import { fallbackCompileToJs } from '../workers/weaveCompiler.worker';
 
 const SAMPLE_COUNTER_WV = `component Counter {
@@ -43,6 +48,20 @@ describe('Weave LivePreview & React Codegen Pipeline', () => {
     if (!Comp) throw new Error('Comp is null! JS was: ' + js);
     const { getByText } = render(<Comp />);
     expect(getByText(/Count:\s*0/i)).toBeInTheDocument();
+  });
+
+  it('creates a self-contained HTML runner without CDN dependencies', () => {
+    const tsx = fallbackCompileToJs(SAMPLE_COUNTER_WV);
+    const html = createStandaloneHtmlFromTsx(tsx, 'Counter Preview');
+    const runtimeScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+
+    expect(html).toContain('<title>Counter Preview</title>');
+    expect(html).not.toContain('unpkg.com');
+    expect(html).not.toContain('babel.min.js');
+    expect(html).toContain('React.createElement(Counter, null)');
+    expect(runtimeScript).toBeDefined();
+    if (!runtimeScript) throw new Error('Standalone HTML runtime script was not generated');
+    expect(() => new Function(runtimeScript)).not.toThrow();
   });
 
   it('compiles Weave source code into TSX and renders interactive counter component', async () => {
@@ -155,10 +174,10 @@ describe('Weave LivePreview & React Codegen Pipeline', () => {
 
     // Wait for initial workspace to load
     await waitFor(() => {
-      expect(screen.getByText('weave-workspace')).toBeInTheDocument();
+      expect(screen.getByTestId('monaco-textarea')).toBeInTheDocument();
     });
 
-    // Wait for file tree to load and click counter.wv
+    // The Explorer is the default view. Wait for its real file tree to load.
     await waitFor(() => {
       expect(screen.getByText('counter.wv')).toBeInTheDocument();
     });
@@ -166,9 +185,11 @@ describe('Weave LivePreview & React Codegen Pipeline', () => {
     const counterFile = screen.getByText('counter.wv');
     fireEvent.click(counterFile);
 
-    // Toggle Preview Panel if not open
-    const previewToggle = screen.getByTestId('btn-toggle-live-preview');
-    fireEvent.click(previewToggle);
+    // Ensure Preview Panel is open
+    if (!screen.queryByTestId('live-preview-container')) {
+      const previewToggle = screen.getByTestId('btn-toggle-live-preview');
+      fireEvent.click(previewToggle);
+    }
 
     // Verify preview container is mounted
     await waitFor(() => {
@@ -178,7 +199,7 @@ describe('Weave LivePreview & React Codegen Pipeline', () => {
     // Verify interactive button in preview
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Increment/i })).toBeInTheDocument();
-    });
+    }, { timeout: 3000 });
 
     // Click increment in the preview pane
     const incBtn = screen.getByRole('button', { name: /Increment/i });
@@ -187,6 +208,92 @@ describe('Weave LivePreview & React Codegen Pipeline', () => {
     });
 
     expect(screen.getByText(/Count:\s*1/i)).toBeInTheDocument();
+  });
+
+  it('opens distinct workspace files and restores the last active file on startup', async () => {
+    localStorage.removeItem('weave_workspace_path');
+    localStorage.removeItem('weave_workspace_recent_files');
+    const firstRender = render(<App />);
+
+    await waitFor(() => {
+      expect((screen.getByTestId('monaco-textarea') as HTMLTextAreaElement).value).toContain(
+        'strand TaskWorker'
+      );
+    });
+
+    fireEvent.click(screen.getByText('geometry.wv'));
+    await waitFor(() => {
+      expect((screen.getByTestId('monaco-textarea') as HTMLTextAreaElement).value).toContain(
+        'struct Vec3'
+      );
+    });
+    expect((screen.getByTestId('monaco-textarea') as HTMLTextAreaElement).value).not.toContain(
+      'strand TaskWorker'
+    );
+
+    firstRender.unmount();
+    render(<App />);
+    await waitFor(() => {
+      expect((screen.getByTestId('monaco-textarea') as HTMLTextAreaElement).value).toContain(
+        'struct Vec3'
+      );
+    });
+
+    localStorage.removeItem('weave_workspace_recent_files');
+  });
+
+  it('auto-saves edits after the configured delay without executing the file', async () => {
+    const originalCode = await fsService.readFile('/workspace/src/main.wv');
+    localStorage.setItem(
+      'weave_workspace_settings',
+      JSON.stringify({ autoSave: true, autoSaveDelay: 250 })
+    );
+    const writeSpy = vi.spyOn(fsService, 'writeFile');
+    const runSpy = vi.spyOn(WeaveCompilerService, 'runFile');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-textarea')).toBeInTheDocument();
+    });
+    const updatedCode = 'component AutoSaved { ui { Text("saved") } }';
+    fireEvent.change(screen.getByTestId('monaco-textarea'), {
+      target: { value: updatedCode },
+    });
+
+    await waitFor(
+      () => {
+        expect(writeSpy).toHaveBeenCalledWith('/workspace/src/main.wv', updatedCode);
+      },
+      { timeout: 1500 }
+    );
+    expect(runSpy).not.toHaveBeenCalled();
+
+    localStorage.removeItem('weave_workspace_settings');
+    writeSpy.mockRestore();
+    runSpy.mockRestore();
+    await fsService.writeFile('/workspace/src/main.wv', originalCode);
+  });
+
+  it('protects a dirty editor tab from accidental closure', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-textarea')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByTestId('monaco-textarea'), {
+      target: { value: 'component UnsavedWork {}' },
+    });
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByTitle('Close tab'));
+    expect(confirmSpy).toHaveBeenCalledWith('Close main.wv without saving?');
+    expect(screen.getByTestId('monaco-textarea')).toHaveValue('component UnsavedWork {}');
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByTitle('Close tab'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('monaco-textarea')).not.toBeInTheDocument();
+    });
+    confirmSpy.mockRestore();
   });
 
   it('compiles and renders components with theme directives and simulated resources', async () => {
@@ -281,4 +388,3 @@ component UserFetcher {
     });
   });
 });
-

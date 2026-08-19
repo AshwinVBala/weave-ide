@@ -1,0 +1,37 @@
+store CounterStore {
+    var count: Int = 0;
+
+    fn increment() {
+        count = count + 1;
+    }
+
+    fn decrement() {
+        count = count - 1;
+    }
+}
+
+server {
+    fn syncCount(val: Int) -> Bool {
+        return true;
+    }
+}
+
+style CounterCard {
+    padding: 20;
+    borderRadius: 12;
+    background: "#ffffff";
+}
+
+component CounterApp() {
+    var title: String = "Weave Reactive Counter";
+
+    VStack(style: CounterCard) {
+        Text(title);
+        HStack {
+            Button("Decrement", onClick: () -> { count = count - 1; });
+            Text("Count: " + count);
+            Button("Increment", onClick: () -> { count = count + 1; });
+        }
+        TextField(placeholder: "Type a note...");
+    }
+}

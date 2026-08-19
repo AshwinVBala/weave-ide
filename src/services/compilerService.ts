@@ -20,6 +20,22 @@ export class WeaveCompilerService {
   private static nativeStatusCache: NativeWeaveStatus | null = null;
   private static statusCheckPromise: Promise<NativeWeaveStatus> | null = null;
 
+  private static async collectWorkspaceWeaveFiles(rootPath: string): Promise<string[]> {
+    const files: string[] = [];
+    const visit = async (directory: string) => {
+      const entries = await fsService.listDir(directory);
+      for (const entry of entries) {
+        if (entry.isDir) {
+          await visit(entry.path);
+        } else if (/\.(wv|weave)$/i.test(entry.name)) {
+          files.push(entry.path);
+        }
+      }
+    };
+    await visit(rootPath);
+    return files.sort((a, b) => a.localeCompare(b));
+  }
+
   /**
    * Checks if native `weave` CLI binary is available via Tauri IPC.
    */
@@ -100,7 +116,7 @@ export class WeaveCompilerService {
           stderr: string;
         }>('execute_native_weave', {
           binaryPath: nativeStatus.path,
-          subcommand: 'dev',
+          subcommand: 'run',
           args: [filePath],
           cwd: null,
         });
@@ -116,22 +132,17 @@ export class WeaveCompilerService {
         }
 
         const elapsed = Math.round(performance.now() - startTime);
-        output.push(`\x1b[32m✔ Native execution completed with exit code ${result.exit_code} in ${elapsed}ms\x1b[0m`);
+        output.push(
+          result.success
+            ? `\x1b[32m✔ Native execution completed in ${elapsed}ms\x1b[0m`
+            : `\x1b[31m✘ Native execution failed with exit code ${result.exit_code} in ${elapsed}ms\x1b[0m`
+        );
 
         return {
           success: result.success,
           output,
           diagnostics: [],
-          strands: [
-            {
-              id: 1,
-              name: 'TaskWorker',
-              status: result.success ? 'completed' : 'blocked',
-              fiberCount: 2,
-              allocatedMemoryKb: 256,
-              executionTimeMs: elapsed,
-            },
-          ],
+          strands: [],
           executionTimeMs: elapsed,
           engine: 'native',
         };
@@ -140,7 +151,7 @@ export class WeaveCompilerService {
       }
     }
 
-    // 2. Fallback: In-memory WASM execution via Web Worker
+    // 2. Browser fallback: compile and typecheck, but do not pretend to execute a runtime.
     try {
       let code = customCode;
       if (code === undefined) {
@@ -148,9 +159,7 @@ export class WeaveCompilerService {
       }
 
       const output: string[] = [];
-      const strands: LoomStrandInfo[] = [];
-
-      output.push(`\x1b[38;2;229;164;67m[Weave Loom Engine (WASM VM)]\x1b[0m Compiling \x1b[1m${filePath}\x1b[0m via WebAssembly...`);
+      output.push(`\x1b[38;2;229;164;67m[Weave WASM Compiler]\x1b[0m Checking \x1b[1m${filePath}\x1b[0m...`);
 
       // Run WASM diagnostics & AST generation
       const diagnostics = await wasmCompilerBridge.checkDiagnostics(code, filePath);
@@ -173,71 +182,20 @@ export class WeaveCompilerService {
         };
       }
 
-      output.push(`\x1b[32m✔ WASM Parse & Typecheck passed\x1b[0m: ${ast.items.length} top-level item(s) resolved.`);
-
-      // Discover strands explicitly from code pattern matching or AST
-      const strandMatches = [...code.matchAll(/strand\s+([A-Za-z0-9_]+)/g)];
-      if (strandMatches.length > 0) {
-        strandMatches.forEach((m, idx) => {
-          strands.push({
-            id: idx + 1,
-            name: m[1],
-            status: 'completed',
-            fiberCount: Math.floor(Math.random() * 4) + 1,
-            allocatedMemoryKb: 128 + idx * 64,
-            executionTimeMs: Math.floor(Math.random() * 15) + 5,
-          });
-          output.push(`  ├─ \x1b[35m[Strand: ${m[1]}]\x1b[0m Spawned on Fiber #${idx + 1}`);
-        });
-      } else if (ast.items.length > 0) {
-        ast.items.forEach((item, idx) => {
-          if (item.kind === 'store' || item.kind === 'component') {
-            strands.push({
-              id: idx + 1,
-              name: item.name || `Strand_${item.kind}_${idx + 1}`,
-              status: 'completed',
-              fiberCount: Math.floor(Math.random() * 3) + 1,
-              allocatedMemoryKb: 128 + idx * 64,
-              executionTimeMs: Math.floor(Math.random() * 10) + 4,
-            });
-            output.push(`  ├─ \x1b[35m[${item.kind.toUpperCase()}: ${item.name}]\x1b[0m Mounted in WASM Reactive Runtime`);
-          }
-        });
-      }
-
-      // Check for print / text statements in code
-      const printMatches = [...code.matchAll(/io::println\((.*?)\);/g)];
-      if (printMatches.length > 0) {
-        output.push('\x1b[1m--- Program Output ---\x1b[0m');
-        printMatches.forEach((m) => {
-          let strVal = m[1].trim();
-          if (strVal.startsWith('f"') || strVal.startsWith('"')) {
-            strVal = strVal.replace(/^f?"|"$/g, '');
-          }
-          output.push(strVal);
-        });
-      } else {
-        output.push('\x1b[1m--- Program Output ---\x1b[0m');
-        output.push(`[WASM Process exited with code 0]`);
-      }
-
-      const elapsed = Math.round(performance.now() - startTime) + 8;
-      output.push(`\x1b[32m✔ Process finished in ${elapsed}ms (in-memory WASM)\x1b[0m`);
+      await wasmCompilerBridge.compileToJs(code, filePath);
+      const elapsed = Math.round(performance.now() - startTime);
+      output.push(
+        `\x1b[32m✔ WASM parse, typecheck, and preview compilation passed\x1b[0m: ${ast.items.length} top-level item(s) resolved.`
+      );
+      output.push(
+        '\x1b[33mProgram execution requires the native Weave CLI. The browser WASM bundle is compiler-only.\x1b[0m'
+      );
 
       return {
-        success: true,
+        success: false,
         output,
         diagnostics,
-        strands: strands.length > 0 ? strands : [
-          {
-            id: 1,
-            name: 'TaskWorker',
-            status: 'completed',
-            fiberCount: 1,
-            allocatedMemoryKb: 128,
-            executionTimeMs: elapsed,
-          },
-        ],
+        strands: [],
         executionTimeMs: elapsed,
         engine: 'wasm',
       };
@@ -254,11 +212,73 @@ export class WeaveCompilerService {
     }
   }
 
+  /** Typechecks a file without executing it. */
+  public static async checkFile(filePath: string, customCode?: string): Promise<CompilationResult> {
+    const startTime = performance.now();
+    const nativeStatus = await this.getNativeStatus();
+    if (nativeStatus.available && isTauriEnvironment()) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const result = await invoke<{
+          success: boolean;
+          exit_code: number;
+          stdout: string;
+          stderr: string;
+        }>('execute_native_weave', {
+          binaryPath: nativeStatus.path,
+          subcommand: 'check',
+          args: [filePath],
+          cwd: null,
+        });
+        const output = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .flatMap((text) => text.split('\n').filter(Boolean));
+        const elapsed = Math.round(performance.now() - startTime);
+        output.push(
+          result.success
+            ? `\x1b[32m✔ Typecheck completed in ${elapsed}ms\x1b[0m`
+            : `\x1b[31m✘ Typecheck failed with exit code ${result.exit_code}\x1b[0m`
+        );
+        return {
+          success: result.success,
+          output,
+          diagnostics: [],
+          strands: [],
+          executionTimeMs: elapsed,
+          engine: 'native',
+        };
+      } catch (error) {
+        return {
+          success: false,
+          output: [`Native typecheck failed: ${error instanceof Error ? error.message : String(error)}`],
+          diagnostics: [],
+          strands: [],
+          executionTimeMs: Math.round(performance.now() - startTime),
+          engine: 'native',
+        };
+      }
+    }
+
+    const code = customCode ?? await fsService.readFile(filePath);
+    const diagnostics = await wasmCompilerBridge.checkDiagnostics(code, filePath);
+    const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
+    return {
+      success: errors.length === 0,
+      output: errors.length === 0
+        ? ['WASM syntax and type checks passed.']
+        : errors.map((diagnostic) => `${filePath}:${diagnostic.line}:${diagnostic.column}: ${diagnostic.message}`),
+      diagnostics,
+      strands: [],
+      executionTimeMs: Math.round(performance.now() - startTime),
+      engine: 'wasm',
+    };
+  }
+
   /**
    * Builds the project target: routes to native `weave build` if available,
    * otherwise compiles bundle using in-memory WASM compiler.
    */
-  public static async buildProject(): Promise<CompilationResult> {
+  public static async buildProject(workspacePath?: string): Promise<CompilationResult> {
     const startTime = performance.now();
     const nativeStatus = await this.getNativeStatus();
 
@@ -274,17 +294,21 @@ export class WeaveCompilerService {
           binaryPath: nativeStatus.path,
           subcommand: 'build',
           args: ['--release'],
-          cwd: null,
+          cwd: workspacePath || null,
         });
 
         const output: string[] = [
-          `\x1b[38;2;229;164;67m[Weave Native Build]\x1b[0m Compiling target release (${nativeStatus.path})...`,
-          '\x1b[32m✔ Finished release target(s) in 1.42s\x1b[0m -> ./bin/demo-weave-app',
+          `\x1b[38;2;229;164;67m[Weave Native Build]\x1b[0m Building ${workspacePath || 'the current workspace'}...`,
         ];
         if (result.stdout) output.push(...result.stdout.split('\n'));
         if (result.stderr) output.push(...result.stderr.split('\n'));
 
         const elapsed = Math.round(performance.now() - startTime);
+        output.push(
+          result.success
+            ? `\x1b[32m✔ Native build completed in ${elapsed}ms\x1b[0m`
+            : `\x1b[31m✘ Native build failed with exit code ${result.exit_code} in ${elapsed}ms\x1b[0m`
+        );
         return {
           success: result.success,
           output,
@@ -298,34 +322,65 @@ export class WeaveCompilerService {
       }
     }
 
-    // WASM In-Memory Build Fallback
-    const elapsed = Math.round(performance.now() - startTime) + 45;
+    const rootPath = workspacePath || '/workspace';
     const output: string[] = [
-      '\x1b[38;2;229;164;67m[Weave WASM Build]\x1b[0m Compiling workspace via in-memory WASM toolchain...',
-      '  Compiling weave_core v0.1.0 (wasm32-unknown-unknown)',
-      '  Emitting reactive CST & component bundles...',
-      '  Optimizing AST node allocation...',
-      `\x1b[32m✔ Finished release target(s) in 1.42s\x1b[0m -> ./dist/bundle.js (WASM VM ready)`,
+      `\x1b[38;2;229;164;67m[Weave WASM Build]\x1b[0m Compiling ${rootPath}...`,
     ];
+    const diagnostics: DiagnosticItem[] = [];
+    try {
+      const files = await this.collectWorkspaceWeaveFiles(rootPath);
+      if (files.length === 0) {
+        return {
+          success: false,
+          output: [...output, '\x1b[31m✘ No .wv or .weave files were found.\x1b[0m'],
+          diagnostics,
+          strands: [],
+          executionTimeMs: Math.round(performance.now() - startTime),
+          engine: 'wasm',
+        };
+      }
 
-    return {
-      success: true,
-      output,
-      diagnostics: [],
-      strands: [],
-      executionTimeMs: elapsed,
-      engine: 'wasm',
-    };
+      for (const filePath of files) {
+        const code = await fsService.readFile(filePath);
+        const fileDiagnostics = await wasmCompilerBridge.checkDiagnostics(code, filePath);
+        diagnostics.push(...fileDiagnostics);
+        if (fileDiagnostics.some((item) => item.severity === 'error')) {
+          output.push(`  \x1b[31m✘ ${filePath}\x1b[0m`);
+          continue;
+        }
+        await wasmCompilerBridge.compileToJs(code, filePath);
+        output.push(`  \x1b[32m✔ ${filePath}\x1b[0m`);
+      }
+
+      const success = !diagnostics.some((item) => item.severity === 'error');
+      const elapsed = Math.round(performance.now() - startTime);
+      output.push(
+        success
+          ? `\x1b[32m✔ Compiled ${files.length} Weave file${files.length === 1 ? '' : 's'} in ${elapsed}ms\x1b[0m`
+          : `\x1b[31m✘ Build failed with ${diagnostics.filter((item) => item.severity === 'error').length} error(s) in ${elapsed}ms\x1b[0m`
+      );
+      return { success, output, diagnostics, strands: [], executionTimeMs: elapsed, engine: 'wasm' };
+    } catch (error) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return {
+        success: false,
+        output: [...output, `\x1b[31m✘ Build failed: ${error instanceof Error ? error.message : String(error)}\x1b[0m`],
+        diagnostics,
+        strands: [],
+        executionTimeMs: elapsed,
+        engine: 'wasm',
+      };
+    }
   }
 
   /**
-   * Tests the project: routes to native `weave check` if available or in-memory WASM verification.
+   * Tests the project with the native `weave test` runner when available.
    */
-  public static async testProject(): Promise<CompilationResult> {
+  public static async testProject(workspacePath?: string): Promise<CompilationResult> {
     const startTime = performance.now();
     const nativeStatus = await this.getNativeStatus();
 
-    if (nativeStatus.available && isTauriEnvironment()) {
+    if (nativeStatus.available && nativeStatus.supports_test && isTauriEnvironment()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const result = await invoke<{
@@ -335,19 +390,23 @@ export class WeaveCompilerService {
           stderr: string;
         }>('execute_native_weave', {
           binaryPath: nativeStatus.path,
-          subcommand: 'check',
+          subcommand: 'test',
           args: [],
-          cwd: null,
+          cwd: workspacePath || null,
         });
 
         const output: string[] = [
-          `\x1b[38;2;229;164;67m[Weave Native Check/Test]\x1b[0m Verifying workspace files...`,
-          '\x1b[32mtest result: ok. 3 passed; 0 failed\x1b[0m',
+          `\x1b[38;2;229;164;67m[Weave Native Test]\x1b[0m Testing ${workspacePath || 'the current workspace'}...`,
         ];
         if (result.stdout) output.push(...result.stdout.split('\n'));
         if (result.stderr) output.push(...result.stderr.split('\n'));
 
         const elapsed = Math.round(performance.now() - startTime);
+        output.push(
+          result.success
+            ? `\x1b[32m✔ Native tests completed in ${elapsed}ms\x1b[0m`
+            : `\x1b[31m✘ Native tests failed with exit code ${result.exit_code} in ${elapsed}ms\x1b[0m`
+        );
         return {
           success: result.success,
           output,
@@ -361,25 +420,54 @@ export class WeaveCompilerService {
       }
     }
 
-    const elapsed = Math.round(performance.now() - startTime) + 30;
-    const output: string[] = [
-      '\x1b[38;2;229;164;67m[Weave WASM Test Runner]\x1b[0m Running in-memory test suite...',
-      '  running 2 tests in examples/counter.wv',
-      '    test counter_state_mutations ... \x1b[32mok\x1b[0m (0.002s)',
-      '    test counter_ui_render ... \x1b[32mok\x1b[0m (0.001s)',
-      '  running 1 test in examples/todo_app.wv',
-      '    test todo_two_way_bindings ... \x1b[32mok\x1b[0m (0.004s)',
-      '',
-      `\x1b[32mtest result: ok. 3 passed; 0 failed (WASM engine in ${elapsed}ms)\x1b[0m`,
+    const rootPath = workspacePath || '/workspace';
+    const output = [
+      `\x1b[38;2;229;164;67m[Weave WASM Test Discovery]\x1b[0m Inspecting ${rootPath}...`,
     ];
+    if (nativeStatus.available && !nativeStatus.supports_test) {
+      output.push(
+        '\x1b[33mThe installed Weave CLI does not provide a test runner; using syntax-aware test discovery.\x1b[0m'
+      );
+    }
+    const diagnostics: DiagnosticItem[] = [];
+    try {
+      const files = await this.collectWorkspaceWeaveFiles(rootPath);
+      const discovered: Array<{ filePath: string; name: string }> = [];
+      for (const filePath of files) {
+        const code = await fsService.readFile(filePath);
+        diagnostics.push(...(await wasmCompilerBridge.checkDiagnostics(code, filePath)));
+        const testPattern = /(?:^|\n)\s*@test(?:\([^)]*\))?\s*(?:\r?\n\s*)*(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+        for (const match of code.matchAll(testPattern)) {
+          discovered.push({ filePath, name: match[1] });
+          output.push(`  discovered ${match[1]} (${filePath})`);
+        }
+      }
 
-    return {
-      success: true,
-      output,
-      diagnostics: [],
-      strands: [],
-      executionTimeMs: elapsed,
-      engine: 'wasm',
-    };
+      const elapsed = Math.round(performance.now() - startTime);
+      const errorCount = diagnostics.filter((item) => item.severity === 'error').length;
+      if (errorCount > 0) {
+        output.push(`\x1b[31m✘ Test compilation failed with ${errorCount} error(s).\x1b[0m`);
+        return { success: false, output, diagnostics, strands: [], executionTimeMs: elapsed, engine: 'wasm' };
+      }
+      if (discovered.length === 0) {
+        output.push('\x1b[33mNo @test functions were found.\x1b[0m');
+        return { success: true, output, diagnostics, strands: [], executionTimeMs: elapsed, engine: 'wasm' };
+      }
+
+      output.push(
+        `\x1b[33mDiscovered and compiled ${discovered.length} test${discovered.length === 1 ? '' : 's'}, but the WASM runtime cannot execute @test functions yet. Install the native Weave CLI to run them.\x1b[0m`
+      );
+      return { success: false, output, diagnostics, strands: [], executionTimeMs: elapsed, engine: 'wasm' };
+    } catch (error) {
+      const elapsed = Math.round(performance.now() - startTime);
+      return {
+        success: false,
+        output: [...output, `\x1b[31m✘ Test discovery failed: ${error instanceof Error ? error.message : String(error)}\x1b[0m`],
+        diagnostics,
+        strands: [],
+        executionTimeMs: elapsed,
+        engine: 'wasm',
+      };
+    }
   }
 }

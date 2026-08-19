@@ -1,12 +1,24 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import App from '../App';
+import App, { getInitialWorkspacePath } from '../App';
 import { HeaderBar } from '../components/HeaderBar';
 import { ActivityBar } from '../components/ActivityBar';
 import { StatusBar } from '../components/StatusBar';
 import { DEFAULT_SETTINGS } from '../App';
 
 describe('Weave IDE Layout & Core Component Tests', () => {
+  it('starts installed desktop builds without a fake /workspace folder', () => {
+    localStorage.removeItem('weave_workspace_path');
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+
+    expect(getInitialWorkspacePath()).toBe('');
+
+    Reflect.deleteProperty(window, '__TAURI_INTERNALS__');
+  });
+
   it('renders the top HeaderBar with application branding and action buttons', () => {
     render(
       <HeaderBar
@@ -54,20 +66,22 @@ describe('Weave IDE Layout & Core Component Tests', () => {
     expect(handleViewChange).toHaveBeenCalledWith('settings');
   });
 
-  it('renders the StatusBar with active branch, loom status, and Weave language indicator', () => {
+  it('renders real repository and runtime state in the StatusBar', () => {
     render(
       <StatusBar
         cursorPosition={{ lineNumber: 14, column: 22 }}
         language="weave"
         diagnostics={[]}
         settings={DEFAULT_SETTINGS}
+        gitBranch="feature/real-workspace"
+        strandCount={0}
         onToggleProblems={() => {}}
         onToggleLoom={() => {}}
       />
     );
 
-    expect(screen.getByText('main')).toBeInTheDocument();
-    expect(screen.getByText('Loom: Online')).toBeInTheDocument();
+    expect(screen.getByText('feature/real-workspace')).toBeInTheDocument();
+    expect(screen.getByText('Loom: No telemetry')).toBeInTheDocument();
     expect(screen.getByText(/ln 14, col 22/i)).toBeInTheDocument();
     expect(screen.getByText('Weave (.wv)')).toBeInTheDocument();
     expect(screen.getByText('UTF-8')).toBeInTheDocument();
@@ -75,6 +89,8 @@ describe('Weave IDE Layout & Core Component Tests', () => {
 
   it('renders the full App workspace and toggles collapsible sidebar', async () => {
     render(<App />);
+
+    await screen.findByTestId('monaco-textarea');
 
     // App header & workspace branding
     expect(screen.getAllByText('Weave IDE').length).toBeGreaterThan(0);
@@ -102,13 +118,15 @@ describe('Weave IDE Layout & Core Component Tests', () => {
     fireEvent.click(settingsBtn);
     expect(screen.getByText('Workspace Settings')).toBeInTheDocument();
     expect(screen.getByText('Editor Configuration')).toBeInTheDocument();
-    expect(screen.getByText('Weave Compiler & Loom')).toBeInTheDocument();
+    expect(screen.getByText('Weave Compiler')).toBeInTheDocument();
+    expect(await screen.findByText(/Browser WASM backend active|Native CLI connected/)).toBeInTheDocument();
 
     // Switch to Loom monitor
     const loomBtn = screen.getByLabelText(/weave loom monitor/i);
     fireEvent.click(loomBtn);
     expect(screen.getByText('Loom Concurrency Monitor')).toBeInTheDocument();
-    expect(screen.getByText('4 Cores')).toBeInTheDocument();
+    expect(screen.getByText('No Loom telemetry')).toBeInTheDocument();
+    expect(screen.queryByText('4 Cores')).not.toBeInTheDocument();
 
     // Switch back to Explorer
     const explorerBtn = screen.getByLabelText(/explorer/i);

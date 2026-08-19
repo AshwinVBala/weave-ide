@@ -53,6 +53,28 @@ describe('IPC File System Service Tests', () => {
     expect(items.some((f) => f.name === 'temp.wv')).toBe(false);
   });
 
+  it('renames files without losing their contents', async () => {
+    const original = await fsService.readFile('/workspace/src/main.wv');
+
+    await fsService.renameEntry('/workspace/src/main.wv', '/workspace/src/app.wv');
+
+    await expect(fsService.readFile('/workspace/src/app.wv')).resolves.toBe(original);
+    await expect(fsService.readFile('/workspace/src/main.wv')).rejects.toThrow('File not found');
+  });
+
+  it('renames folders recursively and refuses to overwrite an existing path', async () => {
+    await fsService.createDir('/workspace/features');
+    await fsService.writeFile('/workspace/features/nested.wv', 'fn nested() {}');
+
+    await fsService.renameEntry('/workspace/features', '/workspace/modules');
+
+    await expect(fsService.readFile('/workspace/modules/nested.wv')).resolves.toBe('fn nested() {}');
+    await expect(fsService.readFile('/workspace/features/nested.wv')).rejects.toThrow('File not found');
+    await expect(
+      fsService.renameEntry('/workspace/modules', '/workspace/src')
+    ).rejects.toThrow('Path already exists');
+  });
+
   it('builds recursive workspace tree structure', async () => {
     const tree = await fsService.buildTree('/workspace');
     expect(tree.isDir).toBe(true);
@@ -62,5 +84,9 @@ describe('IPC File System Service Tests', () => {
     expect(srcNode).toBeDefined();
     expect(srcNode?.isDir).toBe(true);
     expect(srcNode?.children?.some((c) => c.name === 'main.wv')).toBe(true);
+  });
+
+  it('does not fake a native folder selection in the browser fallback', async () => {
+    await expect(fsService.selectWorkspaceFolder()).resolves.toBeNull();
   });
 });

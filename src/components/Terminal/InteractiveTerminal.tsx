@@ -4,14 +4,40 @@ import { terminalService, TerminalEntry } from '../../services/terminalService';
 import { fsService } from '../../services/fsService';
 import { DiagnosticItem, LoomStrandInfo } from '../../types';
 
+export const parseTerminalCommand = (command: string): string[] => {
+  const parts: string[] = [];
+  const tokenPattern = /"([^"]*)"|'([^']*)'|([^\s]+)/g;
+  for (const match of command.matchAll(tokenPattern)) {
+    parts.push(match[1] ?? match[2] ?? match[3]);
+  }
+  return parts;
+};
+
+const normalizeVirtualPath = (path: string): string => {
+  const normalized = path.replace(/\\/g, '/');
+  const drive = normalized.match(/^[A-Za-z]:/)?.[0] || '';
+  const absolute = normalized.startsWith('/') || Boolean(drive);
+  const remainder = drive ? normalized.slice(drive.length) : normalized;
+  const stack: string[] = [];
+  for (const part of remainder.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') stack.pop();
+    else stack.push(part);
+  }
+  const prefix = drive ? `${drive}/` : absolute ? '/' : '';
+  return `${prefix}${stack.join('/')}` || (absolute ? prefix : '.');
+};
+
 interface InteractiveTerminalProps {
   currentFilePath: string | null;
+  workspacePath?: string;
   onDiagnosticsUpdate?: (diags: DiagnosticItem[]) => void;
   onStrandsUpdate?: (strands: LoomStrandInfo[]) => void;
 }
 
 export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
   currentFilePath,
+  workspacePath = '/workspace',
   onDiagnosticsUpdate,
   onStrandsUpdate,
 }) => {
@@ -20,9 +46,17 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [isRunning, setIsRunning] = useState(false);
+  const [currentDirectory, setCurrentDirectory] = useState(workspacePath);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resolvePath = (value?: string) => {
+    if (!value) return currentDirectory;
+    if (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)) return value;
+    return normalizeVirtualPath(`${currentDirectory}/${value}`);
+  };
+
+  useEffect(() => setCurrentDirectory(workspacePath), [workspacePath]);
 
   // Subscribe to central terminal output stream
   useEffect(() => {
@@ -44,7 +78,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     setHistory((prev) => [...prev, trimmed]);
     setHistoryIndex(-1);
 
-    const parts = trimmed.split(' ');
+    const parts = parseTerminalCommand(trimmed);
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
 
@@ -62,20 +96,36 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
         { type: 'output', content: '  weave test            - Execute unit tests' },
         { type: 'output', content: '  ls [dir]              - List files in directory' },
         { type: 'output', content: '  cat <file>            - View contents of file' },
-        { type: 'output', content: '  pwd                   - Print current workspace path' },
+        { type: 'output', content: '  pwd                   - Print current directory' },
+        { type: 'output', content: '  cd <dir>              - Change current directory' },
         { type: 'output', content: '  clear                 - Clear terminal screen' },
+        { type: 'output', content: '  <command>             - Run any system shell command (desktop)' },
       ]);
       return;
     }
 
     if (cmd === 'pwd') {
-      terminalService.addLine('output', '/workspace');
+      terminalService.addLine('output', currentDirectory);
+      return;
+    }
+
+    if (cmd === 'cd') {
+      const requestedPath = args[0] || workspacePath;
+      try {
+        const nextDirectory = terminalService.canExecuteShell
+          ? await terminalService.resolveDirectory(requestedPath, currentDirectory)
+          : resolvePath(requestedPath);
+        if (!terminalService.canExecuteShell) await fsService.listDir(nextDirectory);
+        setCurrentDirectory(nextDirectory);
+      } catch (err: unknown) {
+        terminalService.addLine('error', `cd: ${err instanceof Error ? err.message : String(err)}`);
+      }
       return;
     }
 
     if (cmd === 'ls') {
       try {
-        const targetDir = args[0] || '/workspace';
+        const targetDir = resolvePath(args[0]);
         const items = await fsService.listDir(targetDir);
         const listing = items
           .map((i) => (i.isDir ? `${i.name}/` : i.name))
@@ -93,7 +143,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
         return;
       }
       try {
-        const fullPath = args[0].startsWith('/') ? args[0] : `/workspace/${args[0]}`.replace(/\/+/g, '/');
+        const fullPath = resolvePath(args[0]);
         const content = await fsService.readFile(fullPath);
         terminalService.addLine('output', content);
       } catch (err: unknown) {
@@ -104,37 +154,69 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
 
     if (cmd === 'weave') {
       const subCmd = args[0] || 'run';
-      const targetFile = args[1] || currentFilePath || '/workspace/src/main.wv';
+      const targetFile = args[1] ? resolvePath(args[1]) : currentFilePath;
+      const integratedSubcommands = ['run', 'check', 'build', 'test'];
 
-      setIsRunning(true);
-
-      if (subCmd === 'run' || subCmd === 'check') {
-        const res = await WeaveCompilerService.runFile(targetFile);
-        if (onDiagnosticsUpdate) onDiagnosticsUpdate(res.diagnostics);
-        if (onStrandsUpdate && res.strands.length > 0) onStrandsUpdate(res.strands);
-
-        res.output.forEach((line) => {
-          terminalService.addLine(res.success ? 'output' : 'error', line);
-        });
-      } else if (subCmd === 'build') {
-        const res = await WeaveCompilerService.buildProject();
-        res.output.forEach((line) => {
-          terminalService.addLine('output', line);
-        });
-      } else if (subCmd === 'test') {
-        const res = await WeaveCompilerService.testProject();
-        res.output.forEach((line) => {
-          terminalService.addLine('output', line);
-        });
-      } else {
-        terminalService.addLine('error', `Unknown weave subcommand '${subCmd}'. Try: run, build, test, check.`);
+      if (integratedSubcommands.includes(subCmd)) {
+        if ((subCmd === 'run' || subCmd === 'check') && !targetFile) {
+          terminalService.addLine('error', `No Weave file is active in ${currentDirectory}.`);
+          return;
+        }
+        setIsRunning(true);
+        try {
+          const res = subCmd === 'run'
+            ? await WeaveCompilerService.runFile(targetFile!)
+            : subCmd === 'check'
+              ? await WeaveCompilerService.checkFile(targetFile!)
+              : subCmd === 'build'
+                ? await WeaveCompilerService.buildProject(currentDirectory)
+                : await WeaveCompilerService.testProject(currentDirectory);
+          onDiagnosticsUpdate?.(res.diagnostics);
+          onStrandsUpdate?.(res.strands);
+          res.output.forEach((line) => {
+            terminalService.addLine(res.success ? 'output' : 'error', line);
+          });
+        } catch (error) {
+          terminalService.addLine(
+            'error',
+            `weave ${subCmd} failed: ${error instanceof Error ? error.message : String(error)}`
+          );
+        } finally {
+          setIsRunning(false);
+        }
+        return;
       }
 
-      setIsRunning(false);
+      if (!terminalService.canExecuteShell) {
+          terminalService.addLine(
+            'error',
+            `Unknown weave subcommand '${subCmd}'. Try: run, build, test, check.`
+          );
+          return;
+      }
+    }
+
+    if (!terminalService.canExecuteShell) {
+      terminalService.addLine(
+        'error',
+        `System command '${cmd}' requires the Weave desktop app. Type \`help\` for browser commands.`
+      );
       return;
     }
 
-    terminalService.addLine('error', `Command not found: ${cmd}. Type \`help\` for a list of commands.`);
+    setIsRunning(true);
+    try {
+      const result = await terminalService.executeShellCommand(trimmed, currentDirectory);
+      if (result.stdout) terminalService.addLine('output', result.stdout.trimEnd());
+      if (result.stderr) terminalService.addLine('error', result.stderr.trimEnd());
+      if (!result.success) {
+        terminalService.addLine('error', `Process exited with code ${result.exit_code}.`);
+      }
+    } catch (error) {
+      terminalService.addLine('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -194,7 +276,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
         {isRunning && (
           <div className="flex items-center space-x-2 text-cyan-400 animate-pulse">
             <span className="inline-block w-2 h-2 rounded-full bg-cyan-400" />
-            <span>Weave compiler executing on Loom engine...</span>
+            <span>Command running…</span>
           </div>
         )}
         <div ref={bottomRef} />
@@ -202,7 +284,12 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
 
       {/* Input prompt line */}
       <div className="flex items-center px-3 py-2 bg-[#121620]/90 border-t border-neutral-800">
-        <span className="text-amber-400 font-bold mr-2 select-none">weave-ide$</span>
+        <span
+          className="text-amber-400 font-bold mr-2 select-none"
+          title={currentDirectory}
+        >
+          weave-ide$
+        </span>
         <input
           ref={inputRef}
           type="text"

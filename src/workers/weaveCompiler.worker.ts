@@ -614,55 +614,6 @@ self.onmessage = async (event: MessageEvent<CompilerWorkerRequest>) => {
         break;
       }
 
-      case 'EXECUTE_CODE': {
-        const code = req.code ?? '';
-        const filePath = req.filePath ?? 'main.wv';
-        const logs: string[] = [];
-
-        await ensureWasmInitialized(req.wasmUrl);
-
-        logs.push(`[WASM Loom VM] Compiling '${filePath}' (${code.length} bytes)...`);
-
-        let astOk = true;
-        let diagnostics: DiagnosticItem[] = [];
-
-        if (wasmInitialized) {
-          try {
-            const diagJson = check_diagnostics(code);
-            const wasmDiags: WasmDiagnostic[] = JSON.parse(diagJson);
-            if (wasmDiags.length > 0) {
-              astOk = false;
-              for (const d of wasmDiags) {
-                logs.push(`error: ${d.message} at line ${d.line}:${d.column}`);
-              }
-            } else {
-              logs.push(`✓ [WASM] Syntax and types verified successfully.`);
-            }
-          } catch (err) {
-            logs.push(`[WASM warning] Compilation note: ${err}`);
-          }
-        }
-
-        if (astOk) {
-          logs.push(`[WASM Loom VM] Spawning main strand runtime.`);
-          logs.push(`[WASM Loom VM] Initialized reactive store scopes & components.`);
-          logs.push(`[WASM Loom VM] Process completed with exit code 0.`);
-        } else {
-          logs.push(`[WASM Loom VM] Process aborted due to errors.`);
-        }
-
-        const response: CompilerWorkerResponse = {
-          id: req.id,
-          type: 'EXECUTE_CODE_RESULT',
-          success: astOk,
-          output: logs,
-          diagnostics,
-          elapsedMs: performance.now() - startTime,
-        };
-        self.postMessage(response);
-        break;
-      }
-
       case 'COMPILE_TO_JS': {
         const code = req.code ?? '';
         await ensureWasmInitialized(req.wasmUrl);

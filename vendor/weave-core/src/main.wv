@@ -1,0 +1,17 @@
+store MainStore {
+    var count: Int = 0;
+
+    fn increment() {
+        count = count + 1;
+    }
+}
+
+component MainApp() {
+    var title: String = "Weave Host Runner Ready";
+
+    VStack {
+        Text(title);
+        Text("Counter: " + count);
+        Button("Increment", onClick: () -> { count = count + 1; });
+    }
+}

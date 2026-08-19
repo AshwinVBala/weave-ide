@@ -59,7 +59,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       id: 'cmd-run-file',
       category: 'Compiler & Build',
       title: 'Run Active Weave File',
-      subtitle: `Execute ${activeFilePath.split('/').pop() || 'main.wv'} on Loom VM engine (F5)`,
+      subtitle: `Execute ${activeFilePath.split('/').pop() || 'main.wv'} with the active Weave runtime (F5)`,
       icon: <CornerDownLeft className="w-4 h-4 text-emerald-400" />,
       action: () => {
         onRunFile?.();
@@ -70,7 +70,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       id: 'cmd-build-release',
       category: 'Compiler & Build',
       title: 'Build Release Target',
-      subtitle: 'Compile project artifacts to dist/ bundle with Loom optimization (Ctrl+Shift+B)',
+      subtitle: 'Compile and validate the current workspace (Ctrl+Shift+B)',
       icon: <Zap className="w-4 h-4 text-amber-400" />,
       action: () => {
         onBuildProject?.();

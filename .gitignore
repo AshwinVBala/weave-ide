@@ -12,6 +12,8 @@ build/
 # Tauri & Rust Targets
 src-tauri/target/
 target/
+vendor/weave-core/target/
+src-tauri/binaries/weave-*
 
 # Editor & OS Artifacts
 .DS_Store

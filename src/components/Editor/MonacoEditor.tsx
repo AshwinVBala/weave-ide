@@ -1,10 +1,13 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { OnMount, BeforeMount, Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { EditorTab, WorkspaceSettings, DiagnosticItem, WasmParseOutput } from '../../types';
 import { registerWeaveLanguage } from '../../monaco/registerWeave';
 import { WEAVE_LANGUAGE_ID } from '../../monaco/weaveLanguage';
 import { wasmCompilerBridge } from '../../services/wasmCompilerBridge';
+import { AIService, AIPatch } from '../../services/aiService';
+import { InlinePromptBar } from './InlinePromptBar';
+import { InlineDiffReview } from './InlineDiffReview';
 
 interface MonacoEditorProps {
   tab: EditorTab;
@@ -14,7 +17,71 @@ interface MonacoEditorProps {
   onCursorChange?: (lineNumber: number, column: number) => void;
   onDiagnosticsChange?: (diagnostics: DiagnosticItem[]) => void;
   onAstChange?: (ast: WasmParseOutput) => void;
+  pendingPatch?: AIPatch | null;
+  onAcceptPatch?: () => void;
+  onRejectPatch?: () => void;
+  navigationTarget?: { lineNumber: number; column: number; requestId: number } | null;
+  onNavigationHandled?: (requestId: number) => void;
 }
+
+const MONACO_LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  wv: WEAVE_LANGUAGE_ID,
+  weave: WEAVE_LANGUAGE_ID,
+  yaml: 'yaml',
+  yml: 'yaml',
+  json: 'json',
+  jsonc: 'json',
+  md: 'markdown',
+  markdown: 'markdown',
+  toml: 'ini',
+  ini: 'ini',
+  ts: 'typescript',
+  tsx: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  html: 'html',
+  htm: 'html',
+  css: 'css',
+  scss: 'scss',
+  less: 'less',
+  xml: 'xml',
+  svg: 'xml',
+  py: 'python',
+  rs: 'rust',
+  go: 'go',
+  java: 'java',
+  c: 'c',
+  h: 'cpp',
+  cc: 'cpp',
+  cpp: 'cpp',
+  hpp: 'cpp',
+  sh: 'shell',
+  bash: 'shell',
+  zsh: 'shell',
+  sql: 'sql',
+};
+
+export function getEditorLanguage(filePath: string, fallbackLang = '') {
+  const fileName = filePath.split(/[\\/]/).pop()?.toLowerCase() || '';
+  if (fileName === 'dockerfile') return 'dockerfile';
+  const extension = fileName.includes('.') ? fileName.split('.').pop() || '' : '';
+  return MONACO_LANGUAGE_BY_EXTENSION[extension]
+    || MONACO_LANGUAGE_BY_EXTENSION[fallbackLang.toLowerCase()]
+    || 'plaintext';
+}
+
+export const revealEditorLocation = (
+  editorInstance: Pick<editor.IStandaloneCodeEditor, 'setPosition' | 'revealPositionInCenter' | 'focus'>,
+  lineNumber: number,
+  column = 1
+) => {
+  const position = { lineNumber: Math.max(1, lineNumber), column: Math.max(1, column) };
+  editorInstance.setPosition(position);
+  editorInstance.revealPositionInCenter(position);
+  editorInstance.focus();
+};
 
 export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   tab,
@@ -24,10 +91,27 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   onCursorChange,
   onDiagnosticsChange,
   onAstChange,
+  pendingPatch: externalPatch,
+  onAcceptPatch,
+  onRejectPatch,
+  navigationTarget,
+  onNavigationHandled,
 }) => {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const debounceTimerRef = useRef<any>(null);
+  const decorationsRef = useRef<string[]>([]);
+  const lastNavigationRequestRef = useRef<number | null>(null);
+
+  // Inline Cmd+K Prompt Bar State
+  const [isInlinePromptOpen, setIsInlinePromptOpen] = useState(false);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [currentCursorLine, setCurrentCursorLine] = useState(1);
+  const [selectedText, setSelectedText] = useState('');
+
+  // Local pending patch state if not controlled externally
+  const [localPatch, setLocalPatch] = useState<AIPatch | null>(null);
+  const activePatch = externalPatch !== undefined ? externalPatch : localPatch;
 
   const handleBeforeMount: BeforeMount = (monaco) => {
     monacoRef.current = monaco;
@@ -35,8 +119,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
   };
 
   /**
-   * Request diagnostics and AST from the background WASM Web Worker
-   * without blocking the main UI thread.
+   * Request diagnostics and AST from background WASM Web Worker
    */
   const triggerWasmAnalysis = useCallback(
     async (code: string, filePath: string) => {
@@ -44,10 +127,8 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
       if (!isWeave) return;
 
       try {
-        // Asynchronously check diagnostics in Web Worker
         const diags = await wasmCompilerBridge.checkDiagnostics(code, filePath);
 
-        // Update Monaco Editor markers
         if (monacoRef.current && editorRef.current) {
           const model = editorRef.current.getModel();
           if (model && model.uri.path === filePath) {
@@ -73,7 +154,6 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
           onDiagnosticsChange(diags);
         }
 
-        // Asynchronously generate AST in Web Worker
         if (onAstChange) {
           const ast = await wasmCompilerBridge.parseSource(code, filePath);
           onAstChange(ast);
@@ -85,34 +165,110 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     [onDiagnosticsChange, onAstChange]
   );
 
+  /**
+   * Updates line decorations for pending AI code diffs
+   */
+  const updateDiffDecorations = useCallback(
+    (patch: AIPatch | null) => {
+      if (!editorRef.current || !monacoRef.current) return;
+
+      if (!patch || !patch.modifiedCode) {
+        // Clear decorations
+        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
+        return;
+      }
+
+      const originalLines = (patch.originalCode || tab.content).split('\n');
+      const modifiedLines = patch.modifiedCode.split('\n');
+      const newDecorations: editor.IModelDeltaDecoration[] = [];
+
+      // Identify modified or added line ranges
+      const maxLines = Math.max(originalLines.length, modifiedLines.length);
+      for (let i = 0; i < maxLines; i++) {
+        const origLine = originalLines[i];
+        const modLine = modifiedLines[i];
+
+        if (origLine !== modLine) {
+          const lineNum = Math.min(i + 1, originalLines.length || 1);
+          newDecorations.push({
+            range: new monacoRef.current.Range(lineNum, 1, lineNum, 1),
+            options: {
+              isWholeLine: true,
+              className: 'monaco-diff-line-add',
+              linesDecorationsClassName: 'monaco-diff-gutter-add',
+              overviewRuler: {
+                color: '#10b981',
+                position: monacoRef.current.editor.OverviewRulerLane.Right,
+              },
+            },
+          });
+        }
+      }
+
+      decorationsRef.current = editorRef.current.deltaDecorations(
+        decorationsRef.current,
+        newDecorations
+      );
+    },
+    [tab.content]
+  );
+
+  useEffect(() => {
+    updateDiffDecorations(activePatch);
+  }, [activePatch, updateDiffDecorations]);
+
+  const applyNavigationTarget = useCallback((target: NonNullable<typeof navigationTarget>) => {
+    if (!editorRef.current || lastNavigationRequestRef.current === target.requestId) return;
+    lastNavigationRequestRef.current = target.requestId;
+    revealEditorLocation(editorRef.current, target.lineNumber, target.column);
+    onNavigationHandled?.(target.requestId);
+  }, [onNavigationHandled]);
+
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
 
     registerWeaveLanguage(monaco);
-
-    // Set active theme
     monaco.editor.setTheme(settings.theme);
 
-    // Register Save command shortcut (Ctrl+S / Cmd+S)
+    // Cmd+S / Ctrl+S Save
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       onSave();
     });
 
+    // Cmd+K / Ctrl+K Inline AI Prompt Bar
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
+      const selection = editor.getSelection();
+      const model = editor.getModel();
+      if (selection && model) {
+        const text = model.getValueInRange(selection);
+        setSelectedText(text);
+      }
+      setIsInlinePromptOpen(true);
+    });
+
     // Track cursor changes
     editor.onDidChangeCursorPosition((e) => {
+      setCurrentCursorLine(e.position.lineNumber);
       if (onCursorChange) {
         onCursorChange(e.position.lineNumber, e.position.column);
       }
     });
 
-    // Initial WASM analysis
     triggerWasmAnalysis(tab.content, tab.path);
-
-    editor.focus();
+    if (navigationTarget) {
+      applyNavigationTarget(navigationTarget);
+    } else {
+      editor.focus();
+    }
   };
 
-  // Re-run WASM analysis when switching tabs or when content updates
+  useEffect(() => {
+    if (!navigationTarget || !editorRef.current) return;
+    applyNavigationTarget(navigationTarget);
+  }, [navigationTarget, applyNavigationTarget]);
+
+  // Re-run WASM analysis on content change
   useEffect(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
@@ -129,23 +285,72 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     };
   }, [tab.content, tab.path, triggerWasmAnalysis]);
 
-  // Determine Monaco language identifier
-  const getLanguage = (filePath: string, fallbackLang: string) => {
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    if (ext === 'wv' || ext === 'weave') return WEAVE_LANGUAGE_ID;
-    if (ext === 'json') return 'json';
-    if (ext === 'md') return 'markdown';
-    if (ext === 'toml') return 'ini';
-    if (ext === 'ts' || ext === 'tsx') return 'typescript';
-    if (ext === 'js' || ext === 'jsx') return 'javascript';
-    if (ext === 'rs') return 'rust';
-    return fallbackLang || 'plaintext';
+  // Handle Inline Cmd+K Prompt Submission
+  const handleInlinePromptSubmit = async (promptText: string) => {
+    setIsGeneratingCode(true);
+    try {
+      const response = await AIService.executePrompt(promptText, tab.content, tab.path);
+      if (response.patch) {
+        setLocalPatch(response.patch);
+      }
+      setIsInlinePromptOpen(false);
+    } catch (err) {
+      console.error('Failed to generate inline code:', err);
+    } finally {
+      setIsGeneratingCode(false);
+    }
   };
 
-  const language = getLanguage(tab.path, tab.language);
+  const handleAcceptDiff = () => {
+    if (onAcceptPatch) {
+      onAcceptPatch();
+    } else if (localPatch) {
+      onChange(localPatch.modifiedCode);
+      setLocalPatch(null);
+    }
+  };
+
+  const handleRejectDiff = () => {
+    if (onRejectPatch) {
+      onRejectPatch();
+    } else if (localPatch) {
+      onChange(localPatch.originalCode);
+      setLocalPatch(null);
+    }
+  };
+
+  // Determine Monaco language identifier
+  const language = getEditorLanguage(tab.path, tab.language);
 
   return (
-    <div className="flex-1 w-full h-full relative overflow-hidden" data-testid="monaco-editor-container">
+    <div
+      className={`flex-1 w-full h-full relative overflow-hidden bg-[#090a0f] ${
+        settings.theme === 'weave-obsidian' ? 'weave-editor-obsidian-glow' : ''
+      }`}
+      data-testid="monaco-editor-container"
+      data-editor-theme={settings.theme}
+    >
+      {/* Inline Cmd+K Floating Prompt Bar */}
+      <InlinePromptBar
+        isOpen={isInlinePromptOpen}
+        onClose={() => setIsInlinePromptOpen(false)}
+        onSubmit={handleInlinePromptSubmit}
+        isGenerating={isGeneratingCode}
+        activeFilePath={tab.path}
+        selectedText={selectedText}
+        lineNumber={currentCursorLine}
+      />
+
+      {/* Inline Live Diff Review Floating Toolbar */}
+      {activePatch && (
+        <InlineDiffReview
+          patch={activePatch}
+          onAccept={handleAcceptDiff}
+          onReject={handleRejectDiff}
+          filePath={tab.path}
+        />
+      )}
+
       <Editor
         height="100%"
         width="100%"
@@ -161,7 +366,7 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         }}
         options={{
           fontSize: settings.fontSize,
-          fontFamily: "'Fira Code', 'JetBrains Mono', Consolas, monospace",
+          fontFamily: settings.fontFamily,
           fontLigatures: true,
           tabSize: settings.tabSize,
           insertSpaces: settings.insertSpaces,
@@ -186,3 +391,5 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     </div>
   );
 };
+
+export default MonacoEditor;

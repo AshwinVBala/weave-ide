@@ -6,14 +6,19 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "sidecar:build": "node scripts/build-weave-sidecar.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "release:validate": "node scripts/validate-release.mjs",
+    "release:check": "npm run release:validate && npm test && npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo test --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path vendor/weave-core/Cargo.toml",
+    "bundle": "npm run release:check && npm run tauri build",
     "tauri": "tauri"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
     "monaco-editor": "^0.52.2",

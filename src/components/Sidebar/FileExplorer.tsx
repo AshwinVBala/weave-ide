@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ChevronDown,
   FolderOpen,
+  Pencil,
 } from 'lucide-react';
 import { FileItem } from '../../types';
 import { FileIcon } from '../Common/FileIcon';
@@ -19,6 +20,7 @@ interface FileExplorerProps {
   onCreateFile: (parentPath: string, fileName: string) => Promise<void>;
   onCreateFolder: (parentPath: string, folderName: string) => Promise<void>;
   onDeleteEntry: (path: string) => Promise<void>;
+  onRenameEntry: (path: string, newName: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onOpenWorkspaceDialog?: () => void;
   isLoading?: boolean;
@@ -31,6 +33,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   onCreateFile,
   onCreateFolder,
   onDeleteEntry,
+  onRenameEntry,
   onRefresh,
   onOpenWorkspaceDialog,
   isLoading,
@@ -39,12 +42,23 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     new Set(['/workspace', '/workspace/src', '/workspace/examples'])
   );
   const [modalState, setModalState] = useState<{
-    type: 'file' | 'folder' | 'delete' | null;
+    type: 'file' | 'folder' | 'rename' | 'delete' | null;
     targetParentPath: string;
     targetName?: string;
   }>({ type: null, targetParentPath: '/workspace' });
   const [inputName, setInputName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+
+  const closeModal = () => {
+    setInputName('');
+    setOperationError(null);
+    setModalState({ type: null, targetParentPath: rootItem?.path || '/workspace' });
+  };
+
+  const showOperationError = (error: unknown) => {
+    setOperationError(error instanceof Error ? error.message : String(error));
+  };
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => {
@@ -61,8 +75,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputName.trim()) return;
+    if (/[\\/]/.test(inputName.trim())) {
+      setOperationError('Names cannot contain path separators.');
+      return;
+    }
 
     setIsSubmitting(true);
+    setOperationError(null);
     try {
       if (modalState.type === 'file') {
         const fullPath = `${modalState.targetParentPath}/${inputName.trim()}`.replace(/\/+/g, '/');
@@ -71,9 +90,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
       } else if (modalState.type === 'folder') {
         await onCreateFolder(modalState.targetParentPath, inputName.trim());
         setExpandedFolders((prev) => new Set([...prev, `${modalState.targetParentPath}/${inputName.trim()}`]));
+      } else if (modalState.type === 'rename') {
+        await onRenameEntry(modalState.targetParentPath, inputName.trim());
       }
-      setInputName('');
-      setModalState({ type: null, targetParentPath: '/workspace' });
+      closeModal();
+    } catch (error) {
+      showOperationError(error);
     } finally {
       setIsSubmitting(false);
     }
@@ -82,9 +104,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   const handleDeleteSubmit = async () => {
     if (!modalState.targetParentPath) return;
     setIsSubmitting(true);
+    setOperationError(null);
     try {
       await onDeleteEntry(modalState.targetParentPath);
-      setModalState({ type: null, targetParentPath: '/workspace' });
+      closeModal();
+    } catch (error) {
+      showOperationError(error);
     } finally {
       setIsSubmitting(false);
     }
@@ -141,19 +166,37 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                 <FolderPlus className="w-3.5 h-3.5" />
               </button>
               {item.path !== '/workspace' && (
-                <button
-                  onClick={() =>
-                    setModalState({
-                      type: 'delete',
-                      targetParentPath: item.path,
-                      targetName: item.name,
-                    })
-                  }
-                  className="p-0.5 text-editor-muted hover:text-red-400 rounded"
-                  title="Delete Folder"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      setInputName(item.name);
+                      setOperationError(null);
+                      setModalState({
+                        type: 'rename',
+                        targetParentPath: item.path,
+                        targetName: item.name,
+                      });
+                    }}
+                    className="p-0.5 text-editor-muted hover:text-amber-400 rounded"
+                    title="Rename Folder"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOperationError(null);
+                      setModalState({
+                        type: 'delete',
+                        targetParentPath: item.path,
+                        targetName: item.name,
+                      });
+                    }}
+                    className="p-0.5 text-editor-muted hover:text-red-400 rounded"
+                    title="Delete Folder"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -193,13 +236,29 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           <button
-            onClick={() =>
+            onClick={() => {
+              setInputName(item.name);
+              setOperationError(null);
+              setModalState({
+                type: 'rename',
+                targetParentPath: item.path,
+                targetName: item.name,
+              });
+            }}
+            className="p-0.5 text-editor-muted hover:text-amber-400 rounded"
+            title="Rename File"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => {
+              setOperationError(null);
               setModalState({
                 type: 'delete',
                 targetParentPath: item.path,
                 targetName: item.name,
               })
-            }
+            }}
             className="p-0.5 text-editor-muted hover:text-red-400 rounded"
             title="Delete File"
           >
@@ -221,20 +280,24 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           <button
             onClick={() => {
               setInputName('');
+              setOperationError(null);
               setModalState({ type: 'file', targetParentPath: rootItem?.path || '/workspace' });
             }}
             className="p-1 text-editor-muted hover:text-amber-400 hover:bg-editor-hover rounded transition-colors"
             title="New File (Root)"
+            disabled={!rootItem}
           >
             <FilePlus className="w-4 h-4" />
           </button>
           <button
             onClick={() => {
               setInputName('');
+              setOperationError(null);
               setModalState({ type: 'folder', targetParentPath: rootItem?.path || '/workspace' });
             }}
             className="p-1 text-editor-muted hover:text-amber-400 hover:bg-editor-hover rounded transition-colors"
             title="New Folder (Root)"
+            disabled={!rootItem}
           >
             <FolderPlus className="w-4 h-4" />
           </button>
@@ -279,22 +342,32 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
             </div>
           )
         ) : (
-          <div className="text-center py-6 text-xs text-editor-muted animate-pulse">
-            Loading workspace...
+          <div className="text-center py-6 px-4 text-xs text-editor-muted">
+            {isLoading ? 'Loading workspace…' : 'No folder is open. Choose Open Folder to begin.'}
           </div>
         )}
       </div>
 
-      {/* New File / Folder Modal */}
+      {/* New File / Folder / Rename Modal */}
       <Modal
-        isOpen={modalState.type === 'file' || modalState.type === 'folder'}
-        title={modalState.type === 'file' ? 'Create New File' : 'Create New Folder'}
-        onClose={() => setModalState({ type: null, targetParentPath: '/workspace' })}
+        isOpen={modalState.type === 'file' || modalState.type === 'folder' || modalState.type === 'rename'}
+        title={
+          modalState.type === 'file'
+            ? 'Create New File'
+            : modalState.type === 'folder'
+              ? 'Create New Folder'
+              : 'Rename Entry'
+        }
+        onClose={closeModal}
       >
         <form onSubmit={handleCreateSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-editor-muted mb-1">
-              {modalState.type === 'file' ? 'File Name (e.g. pipeline.wv)' : 'Folder Name'}
+              {modalState.type === 'file'
+                ? 'File Name (e.g. pipeline.wv)'
+                : modalState.type === 'folder'
+                  ? 'Folder Name'
+                  : 'New Name'}
             </label>
             <input
               type="text"
@@ -305,13 +378,19 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
               className="w-full px-3 py-2 text-sm bg-editor-bg border border-editor-border rounded focus:border-amber-500 focus:outline-none text-editor-text"
             />
             <p className="text-[11px] text-editor-muted mt-1">
-              Target directory: <span className="font-mono text-amber-400">{modalState.targetParentPath}</span>
+              {modalState.type === 'rename' ? 'Current path' : 'Target directory'}:{' '}
+              <span className="font-mono text-amber-400">{modalState.targetParentPath}</span>
             </p>
+            {operationError && (
+              <p role="alert" className="text-[11px] text-red-400 mt-2 break-words">
+                {operationError}
+              </p>
+            )}
           </div>
           <div className="flex justify-end space-x-2">
             <button
               type="button"
-              onClick={() => setModalState({ type: null, targetParentPath: '/workspace' })}
+              onClick={closeModal}
               className="px-3 py-1.5 text-xs text-editor-muted hover:text-editor-text rounded border border-editor-border"
             >
               Cancel
@@ -321,7 +400,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
               disabled={isSubmitting || !inputName.trim()}
               className="px-4 py-1.5 text-xs bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-medium rounded shadow transition-colors"
             >
-              {isSubmitting ? 'Creating...' : 'Create'}
+              {isSubmitting
+                ? modalState.type === 'rename' ? 'Renaming...' : 'Creating...'
+                : modalState.type === 'rename' ? 'Rename' : 'Create'}
             </button>
           </div>
         </form>
@@ -331,7 +412,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
       <Modal
         isOpen={modalState.type === 'delete'}
         title="Confirm Deletion"
-        onClose={() => setModalState({ type: null, targetParentPath: '/workspace' })}
+        onClose={closeModal}
       >
         <div className="space-y-4">
           <p className="text-sm text-editor-text">
@@ -344,10 +425,15 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           <p className="text-xs text-editor-muted">
             This action cannot be undone.
           </p>
+          {operationError && (
+            <p role="alert" className="text-xs text-red-400 break-words">
+              {operationError}
+            </p>
+          )}
           <div className="flex justify-end space-x-2">
             <button
               type="button"
-              onClick={() => setModalState({ type: null, targetParentPath: '/workspace' })}
+              onClick={closeModal}
               className="px-3 py-1.5 text-xs text-editor-muted hover:text-editor-text rounded border border-editor-border"
             >
               Cancel

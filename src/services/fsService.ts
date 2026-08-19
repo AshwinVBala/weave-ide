@@ -9,7 +9,9 @@ export interface FsService {
   createFile: (filePath: string) => Promise<void>;
   createDir: (dirPath: string) => Promise<void>;
   deleteEntry: (targetPath: string) => Promise<void>;
+  renameEntry: (sourcePath: string, targetPath: string) => Promise<void>;
   buildTree: (rootPath: string) => Promise<FileItem>;
+  selectWorkspaceFolder: () => Promise<string | null>;
 }
 
 // In-memory virtual file system storage for web preview / testing
@@ -140,6 +142,36 @@ class InMemoryFileSystem {
       }
     }
   }
+
+  async renameEntry(sourcePath: string, targetPath: string): Promise<void> {
+    const source = sourcePath.endsWith('/') ? sourcePath.slice(0, -1) : sourcePath;
+    const target = targetPath.endsWith('/') ? targetPath.slice(0, -1) : targetPath;
+    if (!this.files.has(source) && !this.dirs.has(source)) {
+      throw new Error(`Path does not exist: ${sourcePath}`);
+    }
+    if (this.files.has(target) || this.dirs.has(target)) {
+      throw new Error(`Path already exists: ${targetPath}`);
+    }
+
+    if (this.files.has(source)) {
+      const content = this.files.get(source)!;
+      this.files.delete(source);
+      this.files.set(target, content);
+      return;
+    }
+
+    const renamedDirs = Array.from(this.dirs)
+      .filter((path) => path === source || path.startsWith(`${source}/`))
+      .map((path) => [path, `${target}${path.slice(source.length)}`] as const);
+    const renamedFiles = Array.from(this.files.entries())
+      .filter(([path]) => path.startsWith(`${source}/`))
+      .map(([path, content]) => [path, `${target}${path.slice(source.length)}`, content] as const);
+
+    renamedDirs.forEach(([oldPath]) => this.dirs.delete(oldPath));
+    renamedFiles.forEach(([oldPath]) => this.files.delete(oldPath));
+    renamedDirs.forEach(([, newPath]) => this.dirs.add(newPath));
+    renamedFiles.forEach(([, newPath, content]) => this.files.set(newPath, content));
+  }
 }
 
 export const inMemoryFs = new InMemoryFileSystem();
@@ -153,17 +185,11 @@ export function isTauriEnvironment(): boolean {
   );
 }
 
-// Global Tauri invoke wrapper with graceful fallback
+// Native calls must preserve real filesystem errors. The virtual FS is used only in browsers.
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (isTauriEnvironment()) {
-    try {
-      const core = await import('@tauri-apps/api/core');
-      return await core.invoke<T>(cmd, args);
-    } catch (err) {
-      console.warn(`Tauri invoke '${cmd}' failed, falling back to virtual FS:`, err);
-    }
-  }
-  throw new Error('Tauri IPC is not available');
+  if (!isTauriEnvironment()) throw new Error('Tauri IPC is not available');
+  const core = await import('@tauri-apps/api/core');
+  return core.invoke<T>(cmd, args);
 }
 
 export const fsService: FsService = {
@@ -173,90 +199,83 @@ export const fsService: FsService = {
 
   async listDir(dirPath: string): Promise<FileItem[]> {
     if (isTauriEnvironment()) {
-      try {
-        const rawList = await tauriInvoke<
-          Array<{
-            name: string;
-            path: string;
-            is_dir: boolean;
-            size?: number;
-            modified_at?: number;
-            extension?: string;
-          }>
-        >('list_dir', { path: dirPath });
+      const rawList = await tauriInvoke<
+        Array<{
+          name: string;
+          path: string;
+          is_dir: boolean;
+          size?: number;
+          modified_at?: number;
+          extension?: string;
+        }>
+      >('list_dir', { path: dirPath });
 
-        return rawList.map((item) => ({
-          name: item.name,
-          path: item.path,
-          isDir: item.is_dir,
-          size: item.size,
-          modifiedAt: item.modified_at,
-          extension: item.extension,
-        }));
-      } catch (e) {
-        console.warn(`Failed Tauri list_dir for ${dirPath}:`, e);
-      }
+      return rawList.map((item) => ({
+        name: item.name,
+        path: item.path,
+        isDir: item.is_dir,
+        size: item.size,
+        modifiedAt: item.modified_at,
+        extension: item.extension,
+      }));
     }
     return inMemoryFs.listDir(dirPath);
   },
 
+  async selectWorkspaceFolder(): Promise<string | null> {
+    if (!isTauriEnvironment()) return null;
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: 'Open Folder in Weave IDE',
+    });
+    return typeof selected === 'string' ? selected : null;
+  },
+
   async readFile(filePath: string): Promise<string> {
     if (isTauriEnvironment()) {
-      try {
-        return await tauriInvoke<string>('read_file', { path: filePath });
-      } catch (e) {
-        console.warn(`Failed Tauri read_file for ${filePath}:`, e);
-      }
+      return tauriInvoke<string>('read_file', { path: filePath });
     }
     return inMemoryFs.readFile(filePath);
   },
 
   async writeFile(filePath: string, content: string): Promise<void> {
     if (isTauriEnvironment()) {
-      try {
-        await tauriInvoke<void>('write_file', { path: filePath, content });
-        return;
-      } catch (e) {
-        console.warn(`Failed Tauri write_file for ${filePath}:`, e);
-      }
+      return tauriInvoke<void>('write_file', { path: filePath, content });
     }
     return inMemoryFs.writeFile(filePath, content);
   },
 
   async createFile(filePath: string): Promise<void> {
     if (isTauriEnvironment()) {
-      try {
-        await tauriInvoke<void>('create_file', { path: filePath });
-        return;
-      } catch (e) {
-        console.warn(`Failed Tauri create_file for ${filePath}:`, e);
-      }
+      return tauriInvoke<void>('create_file', { path: filePath });
     }
     return inMemoryFs.createFile(filePath);
   },
 
   async createDir(dirPath: string): Promise<void> {
     if (isTauriEnvironment()) {
-      try {
-        await tauriInvoke<void>('create_dir', { path: dirPath });
-        return;
-      } catch (e) {
-        console.warn(`Failed Tauri create_dir for ${dirPath}:`, e);
-      }
+      return tauriInvoke<void>('create_dir', { path: dirPath });
     }
     return inMemoryFs.createDir(dirPath);
   },
 
   async deleteEntry(targetPath: string): Promise<void> {
     if (isTauriEnvironment()) {
-      try {
-        await tauriInvoke<void>('delete_entry', { path: targetPath });
-        return;
-      } catch (e) {
-        console.warn(`Failed Tauri delete_entry for ${targetPath}:`, e);
-      }
+      return tauriInvoke<void>('delete_entry', { path: targetPath });
     }
     return inMemoryFs.deleteEntry(targetPath);
+  },
+
+  async renameEntry(sourcePath: string, targetPath: string): Promise<void> {
+    if (isTauriEnvironment()) {
+      return tauriInvoke<void>('rename_entry', {
+        sourcePath,
+        targetPath,
+      });
+    }
+    return inMemoryFs.renameEntry(sourcePath, targetPath);
   },
 
   async buildTree(rootPath: string): Promise<FileItem> {

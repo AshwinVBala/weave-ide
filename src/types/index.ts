@@ -31,9 +31,13 @@ export interface WorkspaceSettings {
   theme: 'weave-dark' | 'weave-obsidian' | 'weave-light';
   autoSave: boolean;
   autoSaveDelay: number;
-  weaveCompilerMode: 'loom-vm' | 'llvm-native' | 'wasm';
-  weaveOptLevel: 'debug' | 'release' | 'speed';
-  formatOnSave: boolean;
+  googleAuthMode?: 'oauth' | 'api_key';
+  anthropicAuthMode?: 'oauth' | 'api_key';
+  openaiAuthMode?: 'oauth' | 'api_key';
+  geminiApiKey?: string;
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
+  ollamaEndpoint?: string;
 }
 
 export type SidebarView = 'agent' | 'explorer' | 'search' | 'settings' | 'loom' | 'extensions' | null;
@@ -85,7 +89,7 @@ export interface WasmParseOutput {
 
 export interface CompilerWorkerRequest {
   id: string;
-  type: 'INIT_WASM' | 'CHECK_DIAGNOSTICS' | 'PARSE_SOURCE' | 'EXECUTE_CODE' | 'COMPILE_TO_JS' | 'COMPILE_TO_HTML';
+  type: 'INIT_WASM' | 'CHECK_DIAGNOSTICS' | 'PARSE_SOURCE' | 'COMPILE_TO_JS' | 'COMPILE_TO_HTML';
   code?: string;
   filePath?: string;
   wasmUrl?: string;
@@ -98,7 +102,6 @@ export interface CompilerWorkerResponse {
     | 'INIT_WASM_RESULT'
     | 'CHECK_DIAGNOSTICS_RESULT'
     | 'PARSE_SOURCE_RESULT'
-    | 'EXECUTE_CODE_RESULT'
     | 'COMPILE_TO_JS_RESULT'
     | 'COMPILE_TO_HTML_RESULT'
     | 'ERROR';
@@ -116,6 +119,7 @@ export interface NativeWeaveStatus {
   available: boolean;
   path?: string;
   version?: string;
+  supports_test?: boolean;
 }
 
 export interface ExecutionResult {
@@ -123,5 +127,5 @@ export interface ExecutionResult {
   output: string[];
   diagnostics: DiagnosticItem[];
   executionTimeMs: number;
-  mode: 'native' | 'wasm' | 'simulated';
+  mode: 'native' | 'wasm';
 }

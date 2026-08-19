@@ -1,131 +1,228 @@
-# Weave IDE (`weave-ide`)
+<p align="center">
+  <img src="src-tauri/icons/icon.png" width="96" alt="Weave IDE icon" />
+</p>
 
-A high-performance, cross-platform desktop IDE tailored specifically for the **Weave** concurrent programming language, built with **Tauri 2**, **React 19**, **TypeScript**, **Tailwind CSS**, and **Monaco Editor**.
+# Weave IDE
 
----
+Weave IDE is a native desktop development environment for the Weave programming
+language. It combines a Monaco-based editor, live component preview, the Weave
+compiler, an interactive terminal, diagnostics, and provider-backed AI assistance
+in one Tauri application.
 
-## 🚀 Key Features
+The current release is **0.1.0** and should be treated as a distributable beta.
+Local bundles are functional but unsigned; public releases still require platform
+signing and notarization.
 
-1. **Custom Monaco Editor Integration for Weave (`.wv` & `.weave`)**:
-   - Custom Monarch lexer and tokenizer highlighting Weave keywords (`strand`, `loom`, `weave`, `pattern`, `async`, `await`, `fn`, `struct`, `match`, etc.).
-   - Specialized syntax tokenization for Weave stream and channel operators (`~>`, `<~`, `|>`, `->`, `=>`).
-   - Bracket matching, auto-closing pairs, block indentation, and folding rules.
-   - Built-in Monaco themes (`weave-dark`, `weave-obsidian`, `weave-light`).
-   - Snippets and auto-completions for functions, strand actors, loom threadpools, and pipeline expressions.
-   - Rich hover tooltips with type and documentation previews.
+## What works today
 
-2. **Cross-Platform Tauri 2 IPC File System Backend**:
-   - Native Rust IPC commands (`list_dir`, `read_file`, `write_file`, `create_file`, `create_dir`, `delete_entry`).
-   - Seamless dual-mode file system layer: detects Tauri desktop runtime with automatic fallback to an in-memory virtual file system for web previews and automated tests.
+- **Real workspaces:** Open any local folder through the native picker. Create,
+  rename, delete, search, edit, and save files without a virtual or hardcoded
+  workspace.
+- **A full code editor:** Monaco is bundled locally for offline desktop use. Weave
+  files have custom syntax highlighting, snippets, completions, hover help,
+  diagnostics, bracket handling, and dedicated dark, Obsidian, and light themes.
+  Common languages such as YAML, JSON, Markdown, TypeScript, JavaScript, HTML,
+  CSS, Python, and Rust are also recognized.
+- **Weave live preview:** Compile `.wv` and `.weave` UI components in the
+  background and inspect an interactive preview, generated TSX, or standalone
+  sandboxed HTML. Point & Prompt can target a rendered element for an AI edit.
+- **Bundled compiler:** Desktop installers contain the native `weave` compiler as
+  a Tauri sidecar. Users do not need to install a separate compiler to check,
+  run, or build Weave projects.
+- **Terminal and diagnostics:** Use a real desktop shell, run Weave commands,
+  inspect compiler output, navigate problems, and view Loom telemetry when the
+  runtime reports it.
+- **AI-assisted editing:** Use the right-side Agent, the global Prompt Studio, or
+  inline `Cmd/Ctrl+K`. Proposed file changes are shown as patches for review
+  before they are applied.
+- **Responsive workbench:** The explorer, agent, preview, terminal, header, and
+  status bar adapt to compact windows without crushing the editor.
 
-3. **Modern Collapsible IDE Layout**:
-   - **Activity Bar**: Quick switching between File Explorer, Workspace Search, Loom Concurrency Monitor, and Settings.
-   - **File Explorer**: Recursive directory tree with inline file/folder creation, deletion, and active file tracking.
-   - **Search Panel**: Workspace-wide text search across all `.wv` files and modules.
-   - **Loom Concurrency Monitor**: Real-time visualization of active strands, lightweight fibers, threadpools, and memory allocations.
-   - **Workspace Settings**: Customize editor font size, tab spacing, word wrap, minimap, auto-save, themes, and Weave compiler targets.
+## AI accounts and API keys
 
-4. **Integrated Terminal & Diagnostic Panel**:
-   - Resizable bottom panel with tabs for **Terminal**, **Output / Compiler Logs**, **Problems & Diagnostics**, and **Loom Strands**.
-   - Interactive CLI shell supporting `weave run`, `weave check`, `weave build`, `weave test`, `cat`, `ls`, `clear`, and `help`.
-   - Error marker reporting with file/line/column navigation.
+Weave IDE does not require every user to supply an API key. Open **Settings → AI
+Accounts** and choose an authentication mode per provider.
 
-5. **Keyboard Shortcuts**:
-   - `Ctrl+S` / `Cmd+S`: Save active file
-   - `F5`: Run active Weave file with Loom compiler
-   - `Ctrl+Shift+B` / `Cmd+Shift+B`: Build release target
-   - `Ctrl+B` / `Cmd+B`: Toggle primary sidebar
-   - `Ctrl+\`` / `Cmd+\``: Toggle bottom terminal panel
-   - `Ctrl+N` / `Cmd+N`: Create new untitled `.wv` file
-   - `Ctrl+W` / `Cmd+W`: Close active editor tab
+| Provider | Account mode | API-key mode |
+| --- | --- | --- |
+| OpenAI | Uses the signed-in `codex` client | OpenAI developer API billing |
+| Anthropic | Uses the signed-in `claude` client | Anthropic Console billing |
+| Google | Uses the signed-in Antigravity `agy` client | Google AI API billing |
+| Ollama | Local runtime; no account required | Not applicable |
 
----
+Account mode delegates authentication and execution to the provider's official
+local client. Weave IDE checks client status but does not read or copy OAuth
+tokens. Available models and included usage are determined by the provider and
+the user's plan.
 
-## 🛠️ Project Structure
+In API-key mode, the key is verified against the provider and stored in the
+operating-system credential store—not in workspace files or browser storage.
+Prompts and selected code are sent only when the user invokes an AI action.
 
-```
-weave-ide/
-├── src-tauri/                     # Tauri 2 Desktop Rust Backend
-│   ├── Cargo.toml                 # Cargo dependencies (tauri v2, serde, etc.)
-│   ├── tauri.conf.json            # Tauri v2 configuration
-│   ├── capabilities/              # Tauri v2 security capabilities
-│   └── src/
-│       ├── main.rs                # Desktop entry point
-│       ├── lib.rs                 # Plugin setup & IPC command registration
-│       └── fs_commands.rs         # Native file system IPC handlers
-├── src/                           # React + TypeScript Frontend
-│   ├── components/
-│   │   ├── ActivityBar.tsx        # Left tool switcher
-│   │   ├── HeaderBar.tsx          # App header & quick actions (Run, Build, Save)
-│   │   ├── StatusBar.tsx          # Status indicators (Loom status, Ln/Col, Encoding)
-│   │   ├── Common/
-│   │   │   ├── FileIcon.tsx       # Custom Weave & filetype badges
-│   │   │   └── Modal.tsx          # Modals for new files/folders/deletions
-│   │   ├── Editor/
-│   │   │   ├── MonacoEditor.tsx   # Monaco editor instance with Weave tokens
-│   │   │   ├── EditorTabs.tsx     # Tab strip with dirty state and close buttons
-│   │   │   ├── Breadcrumbs.tsx    # File path navigation
-│   │   │   └── EmptyEditor.tsx    # Welcome & quick start screen
-│   │   ├── Sidebar/
-│   │   │   ├── Sidebar.tsx        # Resizable/collapsible sidebar wrapper
-│   │   │   ├── FileExplorer.tsx   # Recursive file tree explorer
-│   │   │   ├── SearchPanel.tsx    # Workspace search
-│   │   │   ├── SettingsPanel.tsx  # Editor & compiler preferences
-│   │   │   └── LoomMonitorPanel.tsx # Concurrency strands visualizer
-│   │   └── Terminal/
-│   │       ├── TerminalPanel.tsx  # Collapsible bottom panel
-│   │       └── InteractiveTerminal.tsx # Weave interactive shell & CLI
-│   ├── monaco/
-│   │   ├── weaveLanguage.ts       # Monarch tokenizer & keywords for .wv
-│   │   ├── weaveConfiguration.ts  # Auto-closing brackets & comments
-│   │   ├── weaveThemes.ts         # Custom dark/obsidian/light themes
-│   │   └── registerWeave.ts       # Monaco registry, snippets & hover docs
-│   ├── services/
-│   │   ├── fsService.ts           # Dual-mode Tauri IPC / Virtual FS bridge
-│   │   ├── compilerService.ts     # Weave runtime & AST diagnostics engine
-│   │   └── mockWorkspace.ts       # Preloaded sample Weave project files
-│   ├── test/                      # Vitest unit & component test suite
-│   │   ├── setup.ts
-│   │   ├── layout.test.tsx
-│   │   ├── monaco.test.tsx
-│   │   ├── fs.test.tsx
-│   │   └── terminal.test.tsx
-│   ├── types/                     # TypeScript definitions
-│   ├── App.tsx                    # Main layout & state orchestrator
-│   ├── index.css                  # Tailwind styles & custom scrollbars
-│   └── main.tsx                   # React root render
-├── package.json
-├── tailwind.config.js
-├── tsconfig.json
-└── vite.config.ts
-```
+## Install and run
 
----
+Published installers will appear on the repository's
+[Releases page](https://github.com/AshwinVBala/weave-ide/releases). Until a signed
+release is published, build the app locally.
 
-## 🚦 Getting Started
+### Requirements
 
-### Prerequisites
-- Node.js (v18+)
-- Rust & Cargo (1.70+)
+- Node.js LTS and npm
+- Current stable Rust toolchain with Cargo
+- The platform dependencies required by
+  [Tauri 2](https://v2.tauri.app/start/prerequisites/)
 
-### Running Frontend in Dev Mode (Browser Preview)
+Clone and start the native app:
+
 ```bash
-npm run dev
-```
-Open [http://localhost:1420](http://localhost:1420) in your browser.
-
-### Running as Tauri Desktop Application
-```bash
+git clone https://github.com/AshwinVBala/weave-ide.git
+cd weave-ide
+npm ci
 npm run tauri dev
 ```
 
-### Running Automated Test Suite
+The first launch presents an **Open Project Folder** action. The selected folder
+and most recently opened file are remembered locally.
+
+### Browser-only development
+
 ```bash
-npm run test
+npm run dev
 ```
 
-### Building for Production
-```bash
-npm run build
-npm run tauri build
+Vite runs at `http://localhost:1420`. Browser mode uses the in-memory sample
+workspace and the WASM compiler bridge; native file access, the real shell,
+credential storage, provider clients, and the bundled native compiler require
+Tauri.
+
+## Everyday commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run tauri dev` | Run the complete native IDE in development mode |
+| `npm run dev` | Run the browser-only frontend |
+| `npm test` | Run the Vitest component and integration suite |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run build` | Type-check and build the frontend |
+| `npm run sidecar:build` | Build the vendored Weave compiler for the host target |
+| `npm run release:validate` | Validate versions, metadata, icons, CSP, and release files |
+| `npm run release:check` | Run the complete frontend, Rust, and compiler release gate |
+| `npm run bundle` | Validate and create platform installers |
+
+## Keyboard shortcuts
+
+Use `Cmd` on macOS and `Ctrl` on Windows/Linux.
+
+| Shortcut | Action |
+| --- | --- |
+| `Cmd/Ctrl+P` | Quick-open a workspace file |
+| `Cmd/Ctrl+K` | Open Prompt Studio; inside Monaco, open the inline AI prompt |
+| `Cmd/Ctrl+S` | Save the active file |
+| `Cmd/Ctrl+B` | Toggle the primary sidebar |
+| `Cmd/Ctrl+Shift+B` | Build the current Weave project |
+| `Cmd/Ctrl+L` | Toggle the Agent panel |
+| `Cmd/Ctrl+\`` | Toggle the terminal and diagnostics panel |
+| `Cmd/Ctrl+N` | Create an untitled Weave file |
+| `F5` | Run the active Weave file |
+
+## Architecture
+
+```text
+weave-ide/
+├── src/                         React 19 workbench and services
+│   ├── components/              Editor, explorer, preview, terminal, and AI UI
+│   ├── monaco/                  Local Monaco setup and Weave language support
+│   ├── services/                File, compiler, terminal, and AI bridges
+│   ├── workers/                 Browser WASM compiler worker
+│   └── test/                    Vitest test suite
+├── src-tauri/                   Tauri 2 native host
+│   ├── src/fs_commands.rs       Workspace and compiler commands
+│   ├── src/terminal_commands.rs Native shell and Git commands
+│   ├── src/ai_commands.rs       Provider clients, APIs, and credential storage
+│   └── capabilities/            Desktop permission policy
+├── vendor/weave-core/           Compiler source embedded into release builds
+├── scripts/                     Sidecar build and release validation
+└── .github/workflows/           Cross-platform draft release workflow
 ```
+
+The frontend communicates with the Rust host through a narrow Tauri command
+surface. Desktop file failures remain visible rather than silently falling back
+to mock data. Browser mocks exist only for frontend development and tests.
+
+## Testing
+
+Run the complete frontend suite:
+
+```bash
+npm test
+```
+
+Run the same release gate used before packaging:
+
+```bash
+npm run release:check
+```
+
+Coverage includes workspace state, file operations, native terminal routing,
+Monaco language integration, WASM and native compiler paths, live preview,
+navigation, responsive workbench components, provider execution, and AI patch
+review.
+
+## Building installers
+
+```bash
+npm ci
+npm run release:check
+npm run bundle
+```
+
+Artifacts are written to `src-tauri/target/release/bundle/`. The manual
+[`Desktop Release`](.github/workflows/release.yml) workflow builds draft artifacts
+for macOS Apple Silicon, macOS Intel, Windows, and Linux.
+
+Before a public release, confirm the permanent application identifier and
+publisher metadata, then configure Apple and Windows signing credentials.
+Automatic updates are intentionally disabled until a permanent HTTPS update
+endpoint and protected updater signing key exist. See
+[DISTRIBUTION.md](DISTRIBUTION.md) for the release checklist.
+
+## Security notes
+
+- Production builds use an explicit content security policy.
+- Monaco, its fonts, and its workers are bundled locally; the editor does not
+  depend on a CDN.
+- HTML preview runs in a sandboxed iframe.
+- API keys use the native OS credential store.
+- Provider-account tokens remain inside the providers' official clients.
+- AI-generated patches remain reviewable before application.
+
+## Troubleshooting
+
+**A file remains on “Loading…”**
+
+Fully quit any older installed build and install or rebuild the current version.
+Current builds package Monaco locally.
+
+**Run or Build cannot find Weave**
+
+Use a desktop bundle produced by `npm run bundle`, or run
+`npm run sidecar:build` before a custom Tauri build. Browser mode provides only
+the WASM compiler bridge.
+
+**An AI provider says it is disconnected**
+
+Install and sign in to the provider's official client for Account mode, or switch
+that provider to API-key mode in Settings. Model access still depends on the
+provider account and selected model.
+
+**The preview reports a compile error**
+
+Open the Problems tab for source locations, or switch Preview to TSX/HTML to
+inspect generated output. Preview is intended for Weave UI components; arbitrary
+HTML files remain editable but are not compiled as Weave components.
+
+## License
+
+Copyright © 2026 Weave IDE contributors. All rights reserved. A final public
+distribution license has not yet been selected. The bundled compiler's third-party
+license information is recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

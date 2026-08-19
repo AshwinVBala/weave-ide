@@ -158,22 +158,21 @@ class WasmCompilerBridgeService {
   }
 
   /**
-   * Execute code in-memory via the WASM VM runtime in the Web Worker.
+   * Validate an execution request in browser mode. This bundle has a compiler, not a VM runtime.
    */
   public async executeCode(code: string, filePath = 'main.wv'): Promise<ExecutionResult> {
     const startTime = performance.now();
-    const res = await this.sendRequest({
-      type: 'EXECUTE_CODE',
-      code,
-      filePath,
-    });
-    const elapsed = performance.now() - startTime;
+    const diagnostics = await this.checkDiagnostics(code, filePath);
+    const hasErrors = diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+    if (!hasErrors) await this.compileToJs(code, filePath);
 
     return {
-      success: res.success,
-      output: res.output || [],
-      diagnostics: res.diagnostics || [],
-      executionTimeMs: Math.round(elapsed),
+      success: false,
+      output: hasErrors
+        ? ['WASM compilation failed; fix the reported diagnostics before running.']
+        : ['Program execution requires the native Weave CLI; browser WASM is compiler-only.'],
+      diagnostics,
+      executionTimeMs: Math.round(performance.now() - startTime),
       mode: 'wasm',
     };
   }

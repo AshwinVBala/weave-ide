@@ -5,6 +5,13 @@ export interface TerminalEntry {
   timestamp: number;
 }
 
+export interface ShellCommandResult {
+  success: boolean;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+}
+
 type TerminalListener = (lines: TerminalEntry[]) => void;
 
 class TerminalService {
@@ -12,7 +19,7 @@ class TerminalService {
     {
       id: 'init-1',
       type: 'info',
-      content: 'Weave Interactive Shell v2.4.0 (x86_64-apple-darwin / Loom VM)',
+      content: 'Weave IDE Terminal — compiler backend is detected per command',
       timestamp: Date.now(),
     },
     {
@@ -46,6 +53,34 @@ class TerminalService {
   public clear() {
     this.lines = [];
     this.notify();
+  }
+
+  public get canExecuteShell(): boolean {
+    if (typeof window === 'undefined') return false;
+    return Boolean(
+      (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ||
+      (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    );
+  }
+
+  public async executeShellCommand(command: string, cwd: string): Promise<ShellCommandResult> {
+    if (!this.canExecuteShell) {
+      throw new Error('Shell commands require the Weave desktop app.');
+    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<ShellCommandResult>('execute_shell_command', { command, cwd });
+  }
+
+  public async resolveDirectory(path: string, cwd: string): Promise<string> {
+    if (!this.canExecuteShell) throw new Error('Directory resolution requires the desktop app.');
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<string>('resolve_terminal_directory', { path, cwd });
+  }
+
+  public async getGitBranch(cwd: string): Promise<string | null> {
+    if (!this.canExecuteShell) return null;
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<string | null>('get_git_branch', { cwd });
   }
 
   public subscribe(listener: TerminalListener): () => void {

@@ -17,15 +17,21 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
   onCloseTab,
   onNewFileClick,
 }) => {
-  if (tabs.length === 0) return null;
+  // Guarantee strict single active tab list without duplicate paths
+  const uniqueTabs = tabs.filter(
+    (tab, index, self) =>
+      index === self.findIndex((t) => t.path === tab.path || t.id === tab.id)
+  );
+
+  if (uniqueTabs.length === 0) return null;
 
   return (
     <div
       role="tablist"
       aria-label="Editor tabs"
-      className="flex items-center bg-editor-inactiveTab border-b border-editor-border overflow-x-auto select-none custom-scrollbar shrink-0 h-9"
+      className="flex items-center bg-[#08090c] border-b border-white/[0.05] overflow-x-auto select-none custom-scrollbar shrink-0 h-9"
     >
-      {tabs.map((tab) => {
+      {uniqueTabs.map((tab) => {
         const isActive = tab.id === activeTabId;
         return (
           <div
@@ -35,15 +41,14 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
             aria-label={tab.title}
             onClick={() => onSelectTab(tab.id)}
             onAuxClick={(e) => {
-              // Middle click close tab
               if (e.button === 1) {
                 onCloseTab(tab.id, e);
               }
             }}
-            className={`group flex items-center space-x-2 px-3 py-1.5 h-full border-r border-editor-border text-xs cursor-pointer transition-colors max-w-[200px] shrink-0 ${
+            className={`group flex items-center space-x-2 px-3 py-1.5 h-full border-r border-white/[0.05] text-xs cursor-pointer transition-colors max-w-[200px] shrink-0 ${
               isActive
-                ? 'bg-editor-activeTab text-editor-text font-medium border-t-2 border-t-amber-400'
-                : 'text-editor-muted hover:bg-editor-hover/50 hover:text-editor-text'
+                ? 'bg-white/[0.04] text-[#F9FAFB] font-medium border-t-2 border-t-[#FF9D00]'
+                : 'text-[#6B7280] hover:bg-white/[0.02] hover:text-[#F9FAFB]'
             }`}
           >
             <FileIcon name={tab.title} className="w-3.5 h-3.5" />
@@ -54,12 +59,12 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
               {tab.isDirty && (
                 <span
                   title="Unsaved changes"
-                  className="w-2 h-2 rounded-full bg-amber-400 group-hover:hidden"
+                  className="w-1.5 h-1.5 rounded-full bg-[#FF9D00] group-hover:hidden"
                 />
               )}
               <button
                 onClick={(e) => onCloseTab(tab.id, e)}
-                className={`p-0.5 rounded text-editor-muted hover:text-editor-text hover:bg-editor-hover ${
+                className={`p-0.5 rounded text-[#6B7280] hover:text-[#F9FAFB] hover:bg-white/[0.08] ${
                   tab.isDirty ? 'hidden group-hover:block' : ''
                 }`}
                 title="Close tab"
@@ -74,7 +79,7 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
       {onNewFileClick && (
         <button
           onClick={onNewFileClick}
-          className="p-1.5 ml-1 text-editor-muted hover:text-editor-text hover:bg-editor-hover rounded transition-colors"
+          className="p-1.5 ml-1 text-[#6B7280] hover:text-[#F9FAFB] hover:bg-white/[0.04] rounded transition-colors"
           title="New Untitled Weave File"
         >
           <Plus className="w-3.5 h-3.5" />

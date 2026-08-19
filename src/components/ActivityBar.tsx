@@ -9,7 +9,6 @@ import {
   Play,
 } from 'lucide-react';
 import { SidebarView } from '../types';
-import { WeaveLogo } from './Branding/WeaveLogo';
 
 interface ActivityBarProps {
   activeView: SidebarView;
@@ -31,31 +30,31 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
   const topItems: Array<{ id: NonNullable<SidebarView>; icon: React.ReactNode; label: string; shortcut: string }> = [
     {
       id: 'agent',
-      icon: <Bot className="w-5 h-5 text-cyan-400" />,
+      icon: <Bot className="w-[18px] h-[18px]" />,
       label: 'Agent Workspace (AI Studio)',
       shortcut: 'A',
     },
     {
       id: 'explorer',
-      icon: <Files className="w-5 h-5" />,
+      icon: <Files className="w-[18px] h-[18px]" />,
       label: 'Explorer (Ctrl+Shift+E)',
       shortcut: 'E',
     },
     {
       id: 'search',
-      icon: <Search className="w-5 h-5" />,
+      icon: <Search className="w-[18px] h-[18px]" />,
       label: 'Search (Ctrl+Shift+F)',
       shortcut: 'F',
     },
     {
       id: 'loom',
-      icon: <Cpu className="w-5 h-5" />,
+      icon: <Cpu className="w-[18px] h-[18px]" />,
       label: 'Weave Loom Monitor',
       shortcut: 'L',
     },
     {
       id: 'settings',
-      icon: <Settings className="w-5 h-5" />,
+      icon: <Settings className="w-[18px] h-[18px]" />,
       label: 'Workspace Settings (Ctrl+,)',
       shortcut: ',',
     },
@@ -64,35 +63,26 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
   return (
     <aside
       aria-label="Activity Bar"
-      className="w-12 bg-studio-glass backdrop-blur-xl border-r border-studio-border flex flex-col items-center justify-between py-2.5 select-none z-20 shrink-0"
+      className="activity-rail w-11 flex flex-col items-center justify-between py-2 select-none z-20 shrink-0"
     >
       {/* Top action icons */}
-      <div className="flex flex-col items-center space-y-1.5 w-full">
-        {/* Weave Brand Logo Icon */}
-        <div
-          onClick={() => onViewChange('agent')}
-          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-105 mb-1"
-          title="Weave Studio AI"
-        >
-          <WeaveLogo size={24} glow={true} animated={false} />
-        </div>
-
+      <div className="flex flex-col items-center gap-1 w-full">
         {topItems.map((item) => {
           const isActive = activeView === item.id;
           return (
             <button
               key={item.id}
               onClick={() => onViewChange(isActive ? null : item.id)}
-              className={`relative w-10 h-10 flex items-center justify-center rounded-xl transition-all group ${
+              className={`relative w-9 h-9 flex items-center justify-center rounded-md transition-all group ${
                 isActive
-                  ? 'text-cyan-400 bg-neutral-800/80 border border-neutral-700 shadow-glow-cyan'
-                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
+                  ? 'text-[#f3f4f6] bg-white/[0.08]'
+                  : 'text-[#656a76] hover:text-white hover:bg-white/[0.045]'
               }`}
               title={item.label}
               aria-label={item.label}
             >
               {isActive && (
-                <div className="absolute left-0 top-2 bottom-2 w-0.5 bg-cyan-400 rounded-r shadow-glow-cyan" />
+                <div className="absolute -left-1 top-2 bottom-2 w-0.5 bg-[#f0a35b] rounded-r" />
               )}
               {item.icon}
             </button>
@@ -103,10 +93,10 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
         <button
           onClick={onRunCurrentFile}
           disabled={!hasActiveFile}
-          className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+          className={`w-9 h-9 flex items-center justify-center rounded-md transition-all ${
             hasActiveFile
-              ? 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 cursor-pointer'
-              : 'text-neutral-600 cursor-not-allowed'
+              ? 'text-[#68c497] hover:text-[#7bd6aa] hover:bg-white/[0.045] cursor-pointer'
+              : 'text-[#363a43] cursor-not-allowed'
           }`}
           title="Run Current Weave File (F5)"
           aria-label="Run Weave File"
@@ -119,10 +109,10 @@ export const ActivityBar: React.FC<ActivityBarProps> = ({
       <div className="flex flex-col items-center space-y-1 w-full">
         <button
           onClick={onToggleBottomPanel}
-          className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+          className={`w-9 h-9 flex items-center justify-center rounded-md transition-all ${
             isBottomPanelOpen
-              ? 'text-amber-400 bg-neutral-800/80 border border-neutral-700'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
+              ? 'text-[#f5b97e] bg-white/[0.08]'
+              : 'text-[#656a76] hover:text-white hover:bg-white/[0.045]'
           }`}
           title="Toggle Terminal Panel (Ctrl+`)"
           aria-label="Toggle Terminal Panel"

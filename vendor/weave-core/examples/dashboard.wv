@@ -1,0 +1,33 @@
+style SidebarStyle {
+    width: 240;
+    background: "#0f172a";
+}
+
+style MainContentStyle {
+    padding: 32;
+    background: "#f8fafc";
+}
+
+component Dashboard() {
+    var activeTab: String = "overview";
+
+    HStack {
+        VStack(style: SidebarStyle) {
+            Text("Weave Studio");
+            Button("Overview", onClick: () -> { activeTab = "overview"; });
+            Button("Analytics", onClick: () -> { activeTab = "analytics"; });
+            Button("Settings", onClick: () -> { activeTab = "settings"; });
+        }
+
+        VStack(style: MainContentStyle) {
+            HStack {
+                Text("Welcome to Weave Dashboard");
+                TextField(placeholder: "Search metrics...");
+            }
+
+            VStack {
+                Text("System Status: Online");
+            }
+        }
+    }
+}

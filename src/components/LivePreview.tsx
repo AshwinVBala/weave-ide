@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  RefreshCw,
-  Code2,
-  Eye,
-  Globe,
-  AlertCircle,
-  CheckCircle2,
   Sparkles,
+  Eye,
+  Code2,
+  Globe,
+  RefreshCw,
   Copy,
   Check,
+  AlertCircle,
+  CheckCircle2,
   X,
   Crosshair,
 } from 'lucide-react';
@@ -16,14 +16,14 @@ import { WeaveCompilerService } from '../services/compilerService';
 import { DiagnosticItem } from '../types';
 import { PointAndPromptPopover, SelectedElementInfo } from './AI/PointAndPromptPopover';
 
-export interface LivePreviewProps {
+interface LivePreviewProps {
   code: string;
   filePath?: string;
-  autoCompile?: boolean;
-  debounceMs?: number;
-  className?: string;
   onClose?: () => void;
   onApplyCode?: (newCode: string) => void;
+  debounceMs?: number;
+  autoCompile?: boolean;
+  className?: string;
 }
 
 /**
@@ -197,6 +197,167 @@ export function transformJsxToCreateElement(source: string): string {
   return result;
 }
 
+function prepareCompiledTsx(tsxCode: string): { code: string; componentName: string } {
+  let js = tsxCode.replace(/import\s+React.*?;\s*/g, '');
+  js = js.replace(/import\s+.*?from\s+['"].*?['"];\s*/g, '');
+  js = js.replace(/:\s*Record<string,\s*any>\s*=\s*\{\}/g, ' = {}');
+  js = js.replace(/:\s*React\.CSSProperties/g, '');
+  js = js.replace(/useState<[\s\S]*?>\(/g, 'useState(');
+  js = js.replace(/props:\s*\{[\s\S]*?\}\s*=\s*\{\}/g, 'props = {}');
+  js = js.replace(/\(prev:\s*any\)/g, '(prev)');
+  js = js.replace(/\(([a-zA-Z0-9_]+):\s*[a-zA-Z0-9_]+\)/g, '($1)');
+  js = js.replace(/catch\s*\(\s*([a-zA-Z0-9_]+)\s*:\s*any\s*\)/g, 'catch ($1)');
+  js = js.replace(/as\s+any/g, '');
+
+  const matchExport = js.match(/export\s+default\s+([A-Za-z0-9_]+);/);
+  const matchFunc = js.match(/export\s+function\s+([A-Za-z0-9_]+)/);
+  const componentName = matchExport ? matchExport[1] : matchFunc ? matchFunc[1] : 'Component';
+
+  js = js.replace(/export\s+default\s+[A-Za-z0-9_]+;\s*/g, '');
+  js = js.replace(/export\s+const\s+/g, 'const ');
+  js = js.replace(/export\s+function\s+/g, 'function ');
+  js = js.replace(/export\s+async\s+function\s+/g, 'async function ');
+
+  return { code: transformJsxToCreateElement(js), componentName };
+}
+
+/** Creates a dependency-free HTML runner that works inside the Tauri sandbox. */
+export function createStandaloneHtmlFromTsx(tsxCode: string, title = 'Weave App'): string {
+  const { code, componentName } = prepareCompiledTsx(tsxCode);
+  const safeCode = code.replace(/<\/script/gi, '<\\/script');
+  const safeTitle = title.replace(/[<>&"']/g, (char) => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] || char));
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    html, body, #root { width: 100%; min-height: 100%; margin: 0; }
+    body { background: #08090c; color: #f3f4f6; padding: 24px; }
+    #root > div { width: min(100%, 620px); margin: 0 auto; padding: 24px; border-radius: 16px; background: #0d0f17; border: 1px solid rgba(255,255,255,.07); }
+    button { background: #2563eb; color: white; border: 0; padding: 8px 16px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    button:active { transform: scale(.98); }
+    input { background: #141722; color: white; border: 1px solid rgba(255,255,255,.12); padding: 8px 12px; border-radius: 8px; font: inherit; }
+    span { font-size: 16px; line-height: 1.5; }
+    #weave-runtime-error { color: #fca5a5; white-space: pre-wrap; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    (() => {
+      const rootElement = document.getElementById('root');
+      const hooks = [];
+      let hookIndex = 0;
+      let pendingEffects = [];
+      let renderScheduled = false;
+
+      const React = {
+        createElement(type, props, ...children) {
+          return { type, props: props || {}, children: children.flat(Infinity) };
+        }
+      };
+
+      const depsChanged = (previous, next) => !previous || !next || previous.length !== next.length || next.some((value, index) => !Object.is(value, previous[index]));
+      const scheduleRender = () => {
+        if (renderScheduled) return;
+        renderScheduled = true;
+        queueMicrotask(() => { renderScheduled = false; render(); });
+      };
+
+      function useState(initialValue) {
+        const index = hookIndex++;
+        if (!(index in hooks)) hooks[index] = typeof initialValue === 'function' ? initialValue() : initialValue;
+        const setValue = (nextValue) => {
+          const resolved = typeof nextValue === 'function' ? nextValue(hooks[index]) : nextValue;
+          if (!Object.is(resolved, hooks[index])) {
+            hooks[index] = resolved;
+            scheduleRender();
+          }
+        };
+        return [hooks[index], setValue];
+      }
+
+      function useEffect(effect, dependencies) {
+        const index = hookIndex++;
+        const previous = hooks[index];
+        if (depsChanged(previous && previous.dependencies, dependencies)) {
+          pendingEffects.push(() => {
+            if (previous && typeof previous.cleanup === 'function') previous.cleanup();
+            hooks[index] = { dependencies, cleanup: effect() };
+          });
+        }
+      }
+
+      function useMemo(factory, dependencies) {
+        const index = hookIndex++;
+        const previous = hooks[index];
+        if (!previous || depsChanged(previous.dependencies, dependencies)) hooks[index] = { dependencies, value: factory() };
+        return hooks[index].value;
+      }
+
+      function useCallback(callback, dependencies) {
+        return useMemo(() => callback, dependencies);
+      }
+
+      function renderNode(node) {
+        if (node == null || typeof node === 'boolean') return document.createTextNode('');
+        if (typeof node === 'string' || typeof node === 'number') return document.createTextNode(String(node));
+        if (Array.isArray(node)) {
+          const fragment = document.createDocumentFragment();
+          node.forEach((child) => fragment.appendChild(renderNode(child)));
+          return fragment;
+        }
+        if (typeof node.type === 'function') return renderNode(node.type({ ...node.props, children: node.children }));
+
+        const element = document.createElement(node.type);
+        Object.entries(node.props || {}).forEach(([name, value]) => {
+          if (name === 'children' || name === 'key' || value == null || value === false) return;
+          if (name === 'style' && typeof value === 'object') Object.assign(element.style, value);
+          else if (name.startsWith('on') && typeof value === 'function') element.addEventListener(name.slice(2).toLowerCase(), value);
+          else if (name === 'className') element.setAttribute('class', String(value));
+          else if (name === 'htmlFor') element.setAttribute('for', String(value));
+          else if (name in element) element[name] = value;
+          else element.setAttribute(name, value === true ? '' : String(value));
+        });
+        node.children.forEach((child) => element.appendChild(renderNode(child)));
+        return element;
+      }
+
+      ${safeCode}
+
+      function render() {
+        try {
+          hookIndex = 0;
+          pendingEffects = [];
+          rootElement.replaceChildren(renderNode(React.createElement(${componentName}, null)));
+          const effects = pendingEffects;
+          pendingEffects = [];
+          effects.forEach((run) => run());
+        } catch (error) {
+          rootElement.innerHTML = '<pre id="weave-runtime-error"></pre>';
+          rootElement.firstElementChild.textContent = 'HTML preview failed to render:\\n' + (error && error.stack ? error.stack : String(error));
+        }
+      }
+
+      render();
+    })();
+  <\/script>
+</body>
+</html>`;
+}
+
 /**
  * Transforms generated Weave TSX into an executable React Component function.
  */
@@ -250,55 +411,69 @@ export function createComponentFromTsx(tsxCode: string): React.ComponentType<any
 
 export const LivePreview: React.FC<LivePreviewProps> = ({
   code,
-  filePath = 'counter.wv',
-  autoCompile = true,
-  debounceMs = 120,
-  className = '',
+  filePath = 'main.wv',
   onClose,
   onApplyCode = () => {},
+  debounceMs = 150,
+  autoCompile = true,
+  className = '',
 }) => {
+  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'html'>('preview');
   const [compiledJs, setCompiledJs] = useState<string>('');
   const [compiledHtml, setCompiledHtml] = useState<string>('');
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[]>([]);
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [compilationTime, setCompilationTime] = useState<number>(0);
-  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'html'>('preview');
   const [copied, setCopied] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState<number>(0);
+  const [isDiagnosticsExpanded, setIsDiagnosticsExpanded] = useState<boolean>(false);
 
-  // Point & Prompt Interactive State
-  const [isInspectMode, setIsInspectMode] = useState<boolean>(true);
+  // Point & Prompt Interactive Element Inspection state
+  const [isInspectMode, setIsInspectMode] = useState<boolean>(false);
   const [selectedElement, setSelectedElement] = useState<SelectedElementInfo | null>(null);
 
-  const timerRef = useRef<any>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<any>(null);
 
-  const compileSource = useCallback(async (src: string) => {
-    setIsCompiling(true);
-    setRenderError(null);
-    const start = performance.now();
+  // Compile Weave source code using the Web Worker compiler pipeline
+  const compileSource = useCallback(
+    async (source: string) => {
+      if (!source.trim()) {
+        setCompiledJs('');
+        setCompiledHtml('');
+        setDiagnostics([]);
+        setRenderError(null);
+        return;
+      }
 
-    try {
-      // 1. Check diagnostics
-      const diags = await WeaveCompilerService.checkSource(src, filePath);
-      setDiagnostics(diags);
+      setIsCompiling(true);
+      setRenderError(null);
+      const startTime = performance.now();
 
-      // 2. Transpile to TSX/JSX
-      const js = await WeaveCompilerService.compileToJs(src, filePath);
-      setCompiledJs(js);
+      try {
+        // 1. Check diagnostics
+        const diags = await WeaveCompilerService.checkSource(source, filePath);
+        setDiagnostics(diags);
 
-      // 3. Generate HTML runner
-      const html = await WeaveCompilerService.compileToHtml(src, 'Weave Live Preview');
-      setCompiledHtml(html);
+        // 2. Transpile to TSX/JSX
+        const js = await WeaveCompilerService.compileToJs(source, filePath);
+        setCompiledJs(js);
 
-      setCompilationTime(Math.round(performance.now() - start));
-    } catch (err: any) {
-      setRenderError(err?.message || String(err));
-    } finally {
-      setIsCompiling(false);
-    }
-  }, [filePath]);
+        // 3. Generate an offline HTML runner from the same compiled TSX.
+        const html = createStandaloneHtmlFromTsx(js, 'Weave Live Preview');
+        setCompiledHtml(html);
+
+        setCompilationTime(Math.round(performance.now() - startTime));
+      } catch (err: any) {
+        console.error('LivePreview compilation failed:', err);
+        setRenderError(err?.message || String(err));
+      } finally {
+        setIsCompiling(false);
+      }
+    },
+    [filePath]
+  );
 
   useEffect(() => {
     if (!autoCompile) return;
@@ -374,18 +549,18 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
   return (
     <div
       data-testid="live-preview-container"
-      className={`flex flex-col bg-studio-card backdrop-blur-xl border-l border-studio-border text-neutral-200 h-full select-none relative overflow-hidden shadow-2xl ${className}`}
+      className={`flex flex-col bg-[#08090c] border-l border-white/[0.05] text-[#F9FAFB] h-full select-none relative overflow-hidden ${className}`}
     >
       {/* Header Bar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-studio-glass border-b border-studio-border text-xs">
+      <div className="flex items-center justify-between px-3 py-2 bg-[#08090c] border-b border-white/[0.05] text-xs">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-cyan-400 animate-pulse" />
-          <span className="font-bold text-white tracking-wide">Live Preview</span>
-          <span className="text-neutral-400 text-[10px] bg-neutral-900/80 px-1.5 py-0.5 rounded-full border border-neutral-700/60 font-mono">
+          <Sparkles className="w-3.5 h-3.5 text-[#FF9D00]" />
+          <span className="font-semibold text-[#F9FAFB]">Preview</span>
+          <span className="text-[#6B7280] text-[10px] bg-white/[0.03] px-1.5 py-0.5 rounded border border-white/[0.05] font-mono">
             {filePath}
           </span>
           {isCompiling ? (
-            <span className="flex items-center gap-1 text-amber-400 text-[11px] font-mono">
+            <span className="flex items-center gap-1 text-[#FF9D00] text-[11px] font-mono">
               <RefreshCw className="w-3 h-3 animate-spin" /> Compiling...
             </span>
           ) : hasErrors ? (
@@ -408,10 +583,10 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
               if (isInspectMode) setSelectedElement(null);
             }}
             data-testid="btn-toggle-inspect-mode"
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors border ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors border ${
               isInspectMode
-                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-glow-cyan font-medium'
-                : 'bg-neutral-900/60 text-neutral-400 border-neutral-700/60 hover:text-white'
+                ? 'bg-[#FF9D00]/15 text-[#FF9D00] border-[#FF9D00]/30 font-medium'
+                : 'bg-white/[0.03] text-[#6B7280] border-white/[0.05] hover:text-[#F9FAFB]'
             }`}
             title="Toggle Point & Prompt Element Inspector"
           >
@@ -419,44 +594,44 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             <span className="hidden sm:inline">Point & Prompt</span>
           </button>
 
-          <div className="flex items-center gap-1 bg-neutral-900/90 p-0.5 rounded-lg border border-neutral-700/80">
+          <div className="flex items-center gap-1 bg-white/[0.03] p-0.5 rounded-lg border border-white/[0.05]">
             <button
               onClick={() => setActiveTab('preview')}
               data-testid="tab-preview"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs transition-colors ${
                 activeTab === 'preview'
-                  ? 'bg-cyan-500/20 text-cyan-300 font-semibold shadow-sm border border-cyan-500/30'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-white/[0.08] text-[#F9FAFB] font-medium border border-white/[0.08]'
+                  : 'text-[#6B7280] hover:text-[#F9FAFB]'
               }`}
               title="Interactive Component Preview"
             >
-              <Eye className="w-3.5 h-3.5" />
+              <Eye className="w-3 h-3" />
               <span>Preview</span>
             </button>
             <button
               onClick={() => setActiveTab('code')}
               data-testid="tab-code"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs transition-colors ${
                 activeTab === 'code'
-                  ? 'bg-cyan-500/20 text-cyan-300 font-semibold shadow-sm border border-cyan-500/30'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-white/[0.08] text-[#F9FAFB] font-medium border border-white/[0.08]'
+                  : 'text-[#6B7280] hover:text-[#F9FAFB]'
               }`}
               title="View Compiled TSX/JSX"
             >
-              <Code2 className="w-3.5 h-3.5" />
+              <Code2 className="w-3 h-3" />
               <span>TSX</span>
             </button>
             <button
               onClick={() => setActiveTab('html')}
               data-testid="tab-html"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs transition-colors ${
                 activeTab === 'html'
-                  ? 'bg-cyan-500/20 text-cyan-300 font-semibold shadow-sm border border-cyan-500/30'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-white/[0.08] text-[#F9FAFB] font-medium border border-white/[0.08]'
+                  : 'text-[#6B7280] hover:text-[#F9FAFB]'
               }`}
               title="Standalone HTML Runner"
             >
-              <Globe className="w-3.5 h-3.5" />
+              <Globe className="w-3 h-3" />
               <span>HTML</span>
             </button>
           </div>
@@ -466,7 +641,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             <button
               onClick={handleRefresh}
               data-testid="btn-refresh-preview"
-              className="p-1 hover:bg-neutral-800 rounded-lg text-neutral-300 hover:text-white transition-colors"
+              className="p-1 hover:bg-white/[0.06] rounded-md text-[#6B7280] hover:text-[#F9FAFB] transition-colors"
               title="Reload Preview"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -474,7 +649,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
             {onClose && (
               <button
                 onClick={onClose}
-                className="p-1 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors ml-1"
+                className="p-1 hover:bg-white/[0.06] rounded-md text-[#6B7280] hover:text-[#F9FAFB] transition-colors ml-1"
                 title="Close Preview"
               >
                 <X className="w-3.5 h-3.5" />
@@ -485,27 +660,43 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-auto relative custom-scrollbar">
-        {/* Diagnostic Errors Banner */}
+      <div className="flex-1 overflow-auto relative custom-scrollbar bg-[#08090c]">
+        {/* Subtle Floating Diagnostic Errors Banner (Non-intrusive, expands on click) */}
         {hasErrors && (
-          <div className="bg-red-950/80 border-b border-red-800/80 px-4 py-2.5 text-xs text-red-200 space-y-1">
-            <div className="font-semibold flex items-center gap-1.5 text-red-300">
-              <AlertCircle className="w-4 h-4 text-red-400" />
-              Compilation Diagnostics ({diagnostics.filter((d) => d.severity === 'error').length} error):
+          <div className="absolute bottom-4 left-4 right-4 z-30 flex flex-col gap-1.5 p-2.5 rounded-xl bg-[#14080a]/95 border border-red-500/30 backdrop-blur-xl shadow-floating text-xs">
+            <div
+              onClick={() => setIsDiagnosticsExpanded(!isDiagnosticsExpanded)}
+              className="flex items-center justify-between cursor-pointer select-none"
+            >
+              <div className="flex items-center gap-1.5 text-red-300 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                <span>Compilation Diagnostics ({diagnostics.filter((d) => d.severity === 'error').length} error):</span>
+                <span className="text-red-400 font-mono text-[11px] truncate max-w-xs">
+                  {diagnostics.find((d) => d.severity === 'error')?.message}
+                </span>
+              </div>
+              <span className="text-[10px] text-red-400/80 font-mono underline ml-2">
+                {isDiagnosticsExpanded ? 'Collapse' : 'Expand'}
+              </span>
             </div>
-            {diagnostics
-              .filter((d) => d.severity === 'error')
-              .map((d, i) => (
-                <div key={i} className="pl-5 text-red-300/90 font-mono text-[11px]">
-                  • Line {d.line}:{d.column} - {d.message}
-                </div>
-              ))}
+
+            {isDiagnosticsExpanded && (
+              <div className="pt-2 border-t border-red-500/20 space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                {diagnostics
+                  .filter((d) => d.severity === 'error')
+                  .map((d, i) => (
+                    <div key={i} className="pl-5 text-red-300/90 font-mono text-[11px]">
+                      • Line {d.line}:{d.column} - {d.message}
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
         {/* Render Error */}
         {renderError && (
-          <div className="bg-amber-950/80 border-b border-amber-800/80 px-4 py-2 text-xs text-amber-200">
+          <div className="bg-amber-950/40 border-b border-amber-800/40 px-4 py-2 text-xs text-amber-200">
             <div className="font-semibold">Runtime Warning:</div>
             <div className="font-mono text-[11px] mt-0.5">{renderError}</div>
           </div>
@@ -513,10 +704,10 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
         {/* Tab 1: Interactive Component Live Preview */}
         {activeTab === 'preview' && (
-          <div className="w-full h-full p-6 flex flex-col items-center justify-start overflow-auto studio-canvas-bg">
+          <div className="w-full h-full p-6 flex flex-col items-center justify-start overflow-auto">
             {isInspectMode && (
-              <div className="mb-3 px-3 py-1 rounded-full bg-cyan-950/40 border border-cyan-500/30 text-[11px] text-cyan-300 font-mono flex items-center gap-1.5 shadow-sm">
-                <Crosshair className="w-3 h-3 text-cyan-400" />
+              <div className="mb-3 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] text-[#FF9D00] font-mono flex items-center gap-1.5 shadow-sm">
+                <Crosshair className="w-3 h-3 text-[#FF9D00]" />
                 <span>Point & Prompt Active: Click any component below to prompt AI directives</span>
               </div>
             )}
@@ -525,7 +716,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
               ref={previewContainerRef}
               onClick={handlePreviewElementClick}
               data-testid="interactive-preview-pane"
-              className="w-full max-w-lg bg-[#141824]/90 rounded-2xl border border-neutral-700/80 shadow-2xl p-6 text-neutral-100 font-sans weave-live-container relative backdrop-blur-md"
+              className="w-full max-w-lg bg-[#0d0f17] rounded-2xl border border-white/[0.05] shadow-2xl p-6 text-neutral-100 font-sans weave-live-container relative backdrop-blur-md"
               style={{
                 fontFamily:
                   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -557,8 +748,8 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                   color: #f3f4f6;
                 }
                 .weave-live-container input[type="text"] {
-                  background: #1e2230;
-                  border: 1px solid #333d52;
+                  background: #141722;
+                  border: 1px solid rgba(255,255,255,0.1);
                   color: #ffffff;
                   padding: 8px 14px;
                   border-radius: 8px;
@@ -567,8 +758,8 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
                   transition: border-color 0.15s ease;
                 }
                 .weave-live-container input[type="text"]:focus {
-                  border-color: #00e5ff;
-                  box-shadow: 0 0 10px rgba(0, 229, 255, 0.25);
+                  border-color: #ff9d00;
+                  box-shadow: 0 0 10px rgba(255, 157, 0, 0.25);
                 }
                 /* Inspectable elements */
                 .weave-live-container button,
@@ -582,8 +773,8 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
               {DynamicComponent ? (
                 <DynamicComponent />
               ) : (
-                <div className="text-center py-8 text-neutral-400 text-sm">
-                  <span className="text-neutral-500">No visual component rendered. Check your Weave component definition.</span>
+                <div className="text-center py-8 text-[#6B7280] text-sm">
+                  <span>No visual component rendered. Check your Weave component definition.</span>
                 </div>
               )}
             </div>
@@ -592,10 +783,10 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
 
         {/* Tab 2: Compiled TSX Code Viewer */}
         {activeTab === 'code' && (
-          <div className="relative w-full h-full p-4 overflow-auto bg-[#0a0c10]">
+          <div className="relative w-full h-full p-4 overflow-auto bg-[#08090c]">
             <button
               onClick={handleCopyCode}
-              className="absolute top-6 right-6 flex items-center gap-1 px-2.5 py-1 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 text-xs rounded-lg border border-neutral-700 transition-colors shadow-sm"
+              className="absolute top-6 right-6 flex items-center gap-1 px-2.5 py-1 bg-white/[0.04] hover:bg-white/[0.08] text-[#F9FAFB] text-xs rounded-lg border border-white/[0.06] transition-colors shadow-sm"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copied ? 'Copied' : 'Copy TSX'}</span>
@@ -613,6 +804,7 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
         {activeTab === 'html' && (
           <div className="w-full h-full bg-white">
             <iframe
+              key={`html-${reloadKey}-${compiledHtml.length}`}
               data-testid="html-preview-iframe"
               title="Weave App Sandbox"
               srcDoc={compiledHtml}
@@ -636,18 +828,6 @@ export const LivePreview: React.FC<LivePreviewProps> = ({
           }}
         />
       )}
-
-      {/* Footer Info */}
-      <div className="flex items-center justify-between px-4 py-2 bg-studio-glass border-t border-studio-border text-[11px] text-neutral-400 font-mono">
-        <div className="flex items-center gap-2">
-          <span>Target: <strong className="text-cyan-400">React TSX</strong></span>
-          <span>•</span>
-          <span>Engine: <strong className="text-amber-400">WASM Compiler</strong></span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>{compiledJs.length} bytes</span>
-        </div>
-      </div>
     </div>
   );
 };

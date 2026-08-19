@@ -4,11 +4,17 @@ import { WEAVE_LANGUAGE_ID, weaveLanguageTokens } from '../monaco/weaveLanguage'
 import { weaveLanguageConfig } from '../monaco/weaveConfiguration';
 import { weaveDarkTheme, weaveObsidianTheme, weaveLightTheme } from '../monaco/weaveThemes';
 import { registerWeaveLanguage } from '../monaco/registerWeave';
-import { MonacoEditor } from '../components/Editor/MonacoEditor';
+import { getEditorLanguage, MonacoEditor } from '../components/Editor/MonacoEditor';
 import { DEFAULT_SETTINGS } from '../App';
 import { EditorTab } from '../types';
 
 describe('Monaco Weave (.wv) Language & Tokens Tests', () => {
+  it('maps YAML and unknown files to safe bundled editor languages', () => {
+    expect(getEditorLanguage('/project/.github/workflows/release.yml', 'yml')).toBe('yaml');
+    expect(getEditorLanguage('/project/config.yaml', 'yaml')).toBe('yaml');
+    expect(getEditorLanguage('/project/notes.unknown', 'unknown')).toBe('plaintext');
+  });
+
   it('defines the correct Weave language ID and token rules', () => {
     expect(WEAVE_LANGUAGE_ID).toBe('weave');
     expect(weaveLanguageTokens.tokenPostfix).toBe('.wv');
@@ -122,5 +128,39 @@ describe('Monaco Weave (.wv) Language & Tokens Tests', () => {
     const monacoWrapper = screen.getByTestId('mock-monaco-editor');
     expect(monacoWrapper).toBeInTheDocument();
     expect(monacoWrapper).toHaveAttribute('data-language', 'weave');
+  });
+
+  it('enables the text glow wrapper only for the Obsidian theme', () => {
+    const sampleTab: EditorTab = {
+      id: 'tab-glow',
+      path: '/workspace/src/glow.wv',
+      title: 'glow.wv',
+      content: 'component Glow {}',
+      savedContent: 'component Glow {}',
+      isDirty: false,
+      language: 'weave',
+    };
+    const { rerender } = render(
+      <MonacoEditor
+        tab={sampleTab}
+        settings={{ ...DEFAULT_SETTINGS, theme: 'weave-obsidian' }}
+        onChange={() => {}}
+        onSave={() => {}}
+      />
+    );
+
+    const container = screen.getByTestId('monaco-editor-container');
+    expect(container).toHaveClass('weave-editor-obsidian-glow');
+    expect(container).toHaveAttribute('data-editor-theme', 'weave-obsidian');
+
+    rerender(
+      <MonacoEditor
+        tab={sampleTab}
+        settings={{ ...DEFAULT_SETTINGS, theme: 'weave-dark' }}
+        onChange={() => {}}
+        onSave={() => {}}
+      />
+    );
+    expect(container).not.toHaveClass('weave-editor-obsidian-glow');
   });
 });
