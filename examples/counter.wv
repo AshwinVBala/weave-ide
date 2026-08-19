@@ -1,0 +1,20 @@
+component Counter {
+    store count = 0;
+
+    ui {
+        VStack(gap: 12, padding: 16) {
+            Text("Count: " + count);
+            HStack(gap: 8) {
+                Button("Increment", onClick: fn() {
+                    count += 1;
+                });
+                Button("Decrement", onClick: fn() {
+                    count -= 1;
+                });
+                Button("Reset", onClick: fn() {
+                    count = 0;
+                });
+            }
+        }
+    }
+}
